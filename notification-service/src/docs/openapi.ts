@@ -4,7 +4,7 @@ export const openApiDocument = {
     title: "Internflare Notification Service",
     version: "1.0.0",
     description:
-      "Backend email notification delivery API. Notification delivery records are stored in PostgreSQL. Signup events published by auth-service are consumed from the durable RabbitMQ queue `internflare.notifications.email` and sent using Resend. In-app delivery is not included yet.",
+      "Backend email notification delivery API. Notification delivery records are stored in PostgreSQL. Signup and job-listing events published by backend services are consumed from the shared durable RabbitMQ queue `internflare.notifications` and routed by eventType. In-app delivery is not included yet.",
   },
   servers: [{ url: "/", description: "Current notification-service origin" }],
   tags: [

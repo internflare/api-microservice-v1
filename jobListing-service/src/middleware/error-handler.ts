@@ -1,0 +1,38 @@
+import type { ErrorRequestHandler } from "express";
+import { logger } from "../utils/logger.js";
+
+// Error handler middleware for Express.js
+export const errorHandler: ErrorRequestHandler = (
+  error,
+  _request,
+  response,
+  next,
+) => {
+  // Avoid logging parser error objects, which may include the rejected request body.
+  const safeError =
+    error instanceof Error
+      ? { name: error.name, message: error.message }
+      : { message: "Unknown request failure" };
+  logger("error", "Request failed:", safeError);
+
+  if (response.headersSent) {
+    next(error);
+    return;
+  }
+
+  // Return safe client errors for known body-parser failures without exposing implementation details.
+  const errorType =
+    typeof error === "object" && error !== null && "type" in error
+      ? error.type
+      : undefined;
+  if (errorType === "entity.parse.failed") {
+    response.status(400).json({ error: "Malformed JSON request body" });
+    return;
+  }
+  if (errorType === "entity.too.large") {
+    response.status(413).json({ error: "Request body is too large" });
+    return;
+  }
+
+  response.status(500).json({ error: "Internal server error" });
+};

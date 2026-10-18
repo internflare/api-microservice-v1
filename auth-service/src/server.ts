@@ -10,8 +10,12 @@ const server = app.listen(config.port, () => {
   logger("info", `Auth service listening on port ${config.port}`);
 });
 
+let shuttingDown = false;
+
 // Drain HTTP requests and release PostgreSQL and RabbitMQ resources on shutdown.
 async function shutdown(signal: string): Promise<void> {
+  if (shuttingDown) return;
+  shuttingDown = true;
   logger("info", `${signal} received; shutting down auth service`);
 
   server.close(async (error) => {
@@ -38,7 +42,12 @@ async function shutdown(signal: string): Promise<void> {
       );
       process.exitCode = 1;
     }
-    await Sentry.close(2_000);
+    try {
+      await Sentry.close(2_000);
+    } catch (sentryError) {
+      logger("error", "Failed to flush Sentry during shutdown:", sentryError);
+      process.exitCode = 1;
+    }
   });
 }
 

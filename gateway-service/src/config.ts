@@ -32,6 +32,10 @@ const config = {
     "NOTIFICATION_SERVICE_URL",
     "http://localhost:3002",
   ),
+  jobListingServiceUrl: parseServiceUrl(
+    "JOB_LISTING_SERVICE_URL",
+    "http://localhost:3003",
+  ),
 };
 
 export { config };

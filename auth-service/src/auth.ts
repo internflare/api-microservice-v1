@@ -19,6 +19,10 @@ const database = new Pool({
   connectionString: databaseUrl.toString(),
 });
 
+database.on("error", (error) => {
+  logger("error", "Unexpected idle auth PostgreSQL connection error:", error);
+});
+
 // Better Auth manages password authentication and persists users and sessions in PostgreSQL.
 const auth = betterAuth({
   database,

@@ -21,6 +21,40 @@ const signupEventSchema = z.object({
   }),
 });
 
+const recipientSchema = z.object({
+  email: z.email(),
+  name: z.string().trim().min(1).max(120).optional(),
+});
+
+const jobPublishedEventSchema = z.object({
+  eventId: z.uuid(),
+  eventType: z.literal("job.published"),
+  occurredAt: z.iso.datetime(),
+  opportunity: z.object({
+    id: z.uuid(),
+    company_id: z.uuid().nullable(),
+    title: z.string().min(1),
+    description: z.string().min(1),
+    location: z.string().nullable(),
+    work_arrangement: z.string().min(1),
+    application_deadline: z.iso.datetime().nullable(),
+  }),
+  recipients: z.array(recipientSchema),
+});
+
+const jobApplicationEventSchema = z.object({
+  eventId: z.uuid(),
+  eventType: z.literal("job.application_submitted"),
+  occurredAt: z.iso.datetime(),
+  application: z.object({
+    opportunityId: z.uuid(),
+    opportunityTitle: z.string().min(1),
+    applicantName: z.string().min(1),
+    applicantEmail: z.email(),
+  }),
+  recipient: recipientSchema,
+});
+
 type ConsumerSession = {
   connection: ChannelModel;
   channel: Channel;
@@ -30,38 +64,128 @@ type ConsumerSession = {
 const wait = (milliseconds: number) =>
   new Promise((resolve) => setTimeout(resolve, milliseconds));
 
-// Create a RabbitMQ consumer session that listens for signup events and invokes the provided callback for each message.
 async function createConsumerSession(
   onMessage: (message: amqp.ConsumeMessage | null, channel: Channel) => void,
 ): Promise<ConsumerSession> {
   const connection = await amqp.connect(config.rabbitmqUrl);
   connection.on("error", (error) =>
-    logger("error", "RabbitMQ connection error:", error),
+    logger("error", "RabbitMQ notification connection error:", error),
   );
   const closed = new Promise<void>((resolve) => {
     connection.once("close", resolve);
   });
 
-  const channel = await connection.createChannel();
-  channel.on("error", (error) =>
-    logger("error", "RabbitMQ consumer channel error:", error),
-  );
-  await channel.assertQueue(config.notificationQueue, { durable: true });
-  await channel.prefetch(1);
+  try {
+    const channel = await connection.createChannel();
+    channel.on("error", (error) =>
+      logger("error", "RabbitMQ notification consumer channel error:", error),
+    );
+    await channel.assertQueue(config.notificationQueue, { durable: true });
+    await channel.prefetch(1);
+    await channel.consume(
+      config.notificationQueue,
+      (message) => onMessage(message, channel),
+      { noAck: false },
+    );
 
-  // Start consuming messages from the queue.
-  // config.notificationQueue is the name of the queue to consume from.
-  await channel.consume(
-    config.notificationQueue,
-    (message) => onMessage(message, channel),
-    { noAck: false },
-  );
-
-  return { connection, channel, closed };
+    return { connection, channel, closed };
+  } catch (error) {
+    try {
+      await connection.close();
+    } catch (closeError) {
+      logger(
+        "warn",
+        "Failed to close RabbitMQ after consumer setup failed:",
+        closeError,
+      );
+    }
+    throw error;
+  }
 }
 
-// Deliver a signup email notification for the given RabbitMQ message, acknowledge.
-async function deliverSignupEmail(
+async function deliverSignupEvent(
+  event: z.infer<typeof signupEventSchema>,
+): Promise<void> {
+  if (await findNotificationById(event.eventId)) {
+    logger("info", `Signup notification ${event.eventId} was already saved`);
+    return;
+  }
+
+  const title = "Welcome to Internflare";
+  const body =
+    "Your account has been created successfully. Explore opportunities, build your profile, and take the next step in your career.";
+  const link = new URL("/app", config.frontendUrl).toString();
+
+  await sendEmailNotification({
+    type: "account",
+    to: event.user.email,
+    recipientName: event.user.name || undefined,
+    subject: title,
+    message: body,
+    action: { label: "Open your dashboard", url: link },
+  });
+  await createNotification({
+    id: event.eventId,
+    user_id: event.user.id,
+    type: "account",
+    title,
+    body,
+    link,
+    channel: "email",
+  });
+}
+
+async function deliverJobPublishedEvent(
+  event: z.infer<typeof jobPublishedEventSchema>,
+): Promise<void> {
+  const link = new URL(
+    `/app/opportunities/${event.opportunity.id}`,
+    config.frontendUrl,
+  ).toString();
+
+  for (const recipient of event.recipients) {
+    await sendEmailNotification({
+      type: "system",
+      to: recipient.email,
+      recipientName: recipient.name,
+      subject: `New opportunity: ${event.opportunity.title}`,
+      message: [
+        event.opportunity.description,
+        event.opportunity.location
+          ? `Location: ${event.opportunity.location}`
+          : undefined,
+        `Work arrangement: ${event.opportunity.work_arrangement}`,
+        event.opportunity.application_deadline
+          ? `Application deadline: ${event.opportunity.application_deadline}`
+          : undefined,
+      ]
+        .filter(Boolean)
+        .join("\n\n"),
+      action: { label: "View opportunity", url: link },
+    });
+  }
+}
+
+async function deliverJobApplicationEvent(
+  event: z.infer<typeof jobApplicationEventSchema>,
+): Promise<void> {
+  const link = new URL(
+    `/app/opportunities/${event.application.opportunityId}`,
+    config.frontendUrl,
+  ).toString();
+
+  await sendEmailNotification({
+    type: "application",
+    to: event.recipient.email,
+    recipientName: event.recipient.name,
+    subject: `New application: ${event.application.opportunityTitle}`,
+    message: `${event.application.applicantName} (${event.application.applicantEmail}) applied for ${event.application.opportunityTitle}.`,
+    action: { label: "View opportunity", url: link },
+  });
+}
+
+// Route all events from the shared queue by eventType; unknown or malformed events are discarded.
+async function deliverNotification(
   message: amqp.ConsumeMessage | null,
   channel: Channel,
 ): Promise<void> {
@@ -71,74 +195,66 @@ async function deliverSignupEmail(
   try {
     decoded = JSON.parse(message.content.toString("utf8"));
   } catch (error) {
-    logger("error", "Discarding malformed signup notification JSON:", error);
-    channel.ack(message); // Acknowledge the message to remove it from the queue.
+    logger("error", "Discarding malformed notification JSON:", error);
+    channel.ack(message);
     return;
   }
 
-  // Parse the decoded message using the Zod schema.
-  const parsed = signupEventSchema.safeParse(decoded);
-  if (!parsed.success) {
-    logger(
-      "error",
-      "Discarding invalid signup notification event:",
-      parsed.error,
-    );
-    channel.ack(message); // Acknowledge the message to remove it from the queue.
-    return;
-  }
-
-  const { eventId, user } = parsed.data;
+  const eventType =
+    typeof decoded === "object" && decoded !== null && "eventType" in decoded
+      ? decoded.eventType
+      : undefined;
   try {
-    // Check if the notification has already been saved to avoid duplicate emails on redelivery.
-    if (await findNotificationById(eventId)) {
-      channel.ack(message); // Acknowledge the message to remove it from the queue (success).
-      logger("info", `Signup notification ${eventId} was already saved`);
+    if (eventType === "user.signed_up") {
+      const event = signupEventSchema.safeParse(decoded);
+      if (!event.success) {
+        logger("error", "Discarding invalid signup event:", event.error);
+        channel.ack(message);
+        return;
+      }
+      await deliverSignupEvent(event.data);
+    } else if (eventType === "job.published") {
+      const event = jobPublishedEventSchema.safeParse(decoded);
+      if (!event.success) {
+        logger("error", "Discarding invalid job-published event:", event.error);
+        channel.ack(message);
+        return;
+      }
+      await deliverJobPublishedEvent(event.data);
+    } else if (eventType === "job.application_submitted") {
+      const event = jobApplicationEventSchema.safeParse(decoded);
+      if (!event.success) {
+        logger(
+          "error",
+          "Discarding invalid job-application event:",
+          event.error,
+        );
+        channel.ack(message);
+        return;
+      }
+      await deliverJobApplicationEvent(event.data);
+    } else {
+      logger("error", `Discarding unknown notification event type: ${String(eventType)}`);
+      channel.ack(message);
       return;
     }
 
-    const title = "Welcome to Internflare";
-    const body =
-      "Your account has been created successfully. Explore opportunities, build your profile, and take the next step in your career.";
-    const link = new URL("/app", config.frontendUrl).toString();
-
-    await sendEmailNotification({
-      type: "account",
-      to: user.email,
-      recipientName: user.name || undefined,
-      subject: title,
-      message: body,
-      action: { label: "Open your dashboard", url: link },
-    });
-    await createNotification({
-      id: eventId,
-      user_id: user.id,
-      type: "account",
-      title,
-      body,
-      link,
-      channel: "email",
-    });
-    channel.ack(message); // Acknowledge the message to remove it from the queue (success).
-    logger("info", `Delivered signup email for event ${eventId}`);
+    channel.ack(message);
+    logger("info", `Delivered ${String(eventType)} notification`);
   } catch (error) {
-    // Keep the persistent event queued when Resend is unavailable; RabbitMQ will retry it.
     Sentry.captureException(error, {
-      tags: { operation: "deliver-signup-email" },
-      extra: { eventId },
+      tags: { operation: "deliver-notification-event", eventType: String(eventType) },
     });
-    logger(
-      "error",
-      `Signup email delivery failed for event ${eventId}:`,
-      error,
-    );
+    logger("error", `Notification delivery failed for ${String(eventType)}:`, error);
     await wait(1_000);
-    channel.nack(message, false, true); // Requeue the message for retry; RabbitMQ will redeliver it later.
+    channel.nack(message, false, true);
   }
 }
 
-// Consume confirmed signup events, reconnecting to RabbitMQ after broker restarts.
-async function startSignupNotificationConsumer(): Promise<() => Promise<void>> {
+// Maintain a single queue consumer and reconnect after RabbitMQ restarts.
+async function startSignupNotificationConsumer(): Promise<
+  () => Promise<void>
+> {
   let stopping = false;
   let session: ConsumerSession | undefined;
 
@@ -146,31 +262,38 @@ async function startSignupNotificationConsumer(): Promise<() => Promise<void>> {
     message: amqp.ConsumeMessage | null,
     channel: Channel,
   ) => {
-    void deliverSignupEmail(message, channel).catch((error: unknown) => {
-      logger(
-        "error",
-        "Unexpected signup notification consumer failure:",
-        error,
-      );
+    void deliverNotification(message, channel).catch((error: unknown) => {
+      logger("error", "Unexpected notification consumer failure:", error);
+      Sentry.captureException(error, {
+        tags: { operation: "process-notification-message" },
+      });
+      if (message) {
+        try {
+          channel.nack(message, false, true);
+        } catch (acknowledgementError) {
+          logger(
+            "error",
+            "Failed to requeue notification after consumer failure:",
+            acknowledgementError,
+          );
+        }
+      }
     });
   };
 
-  // Wait for an initial connection before declaring the notification worker ready.
   session = await createConsumerSession(processMessages);
-
-  const reconnect = async () => {
+  const reconnectTask = (async () => {
     let activeSession: ConsumerSession | undefined = session;
-
     while (!stopping) {
       if (activeSession) {
         await activeSession.closed;
         if (stopping) break;
 
-        logger("warn", "RabbitMQ connection closed; reconnecting in 3 seconds");
+        logger("warn", "RabbitMQ notification connection closed; reconnecting in 3 seconds");
         try {
           await activeSession.connection.close();
-        } catch {
-          // The broker may already have closed the connection.
+        } catch (error) {
+          logger("warn", "RabbitMQ connection was already closed:", error);
         }
         activeSession = undefined;
         session = undefined;
@@ -181,21 +304,16 @@ async function startSignupNotificationConsumer(): Promise<() => Promise<void>> {
         try {
           activeSession = await createConsumerSession(processMessages);
           session = activeSession;
-          logger(
-            "info",
-            "Reconnected signup notification consumer to RabbitMQ",
-          );
+          logger("info", "Reconnected notification consumer to RabbitMQ");
         } catch (error) {
-          logger("error", "RabbitMQ consumer reconnect failed:", error);
+          logger("error", "RabbitMQ notification consumer reconnect failed:", error);
           await wait(3_000);
         }
       }
     }
-  };
-
-  const reconnectTask = reconnect();
+  })();
   void reconnectTask.catch((error: unknown) => {
-    logger("error", "RabbitMQ consumer stopped unexpectedly:", error);
+    logger("error", "Notification consumer stopped unexpectedly:", error);
   });
 
   return async () => {
@@ -203,8 +321,8 @@ async function startSignupNotificationConsumer(): Promise<() => Promise<void>> {
     if (session) {
       try {
         await session.connection.close();
-      } catch {
-        logger("warn", "RabbitMQ consumer connection was already closed");
+      } catch (error) {
+        logger("warn", "Notification consumer connection was already closed:", error);
       }
     }
     await reconnectTask;

@@ -22,8 +22,13 @@ const hopByHopHeaders = new Set([
 
 // Forwardable headers are all headers except hop-by-hop headers and any headers listed in the Connection header.
 function forwardableHeaders(headers: IncomingHttpHeaders): OutgoingHttpHeaders {
-  const connectionHeaders = headers.connection
-    ?.split(",")
+  const connectionValues = Array.isArray(headers.connection)
+    ? headers.connection
+    : headers.connection
+      ? [headers.connection]
+      : [];
+  const connectionHeaders = connectionValues
+    .flatMap((value) => value.split(","))
     .map((header) => header.trim().toLowerCase())
     .filter(Boolean);
   const excludedHeaders = new Set([
@@ -38,7 +43,14 @@ function forwardableHeaders(headers: IncomingHttpHeaders): OutgoingHttpHeaders {
 
 // Determine the target service based on the request path.
 function getTarget(pathname: string): URL {
-  // Keep the services' existing API paths intact while routing notification APIs and docs separately.
+  // Keep API paths intact while routing notification, job listing, and auth requests.
+  if (
+    pathname === "/api/v1/opportunities" ||
+    pathname.startsWith("/api/v1/opportunities/")
+  ) {
+    return config.jobListingServiceUrl;
+  }
+
   if (
     pathname === "/api/v1/notifications" ||
     pathname.startsWith("/api/v1/notifications/") ||
@@ -68,7 +80,15 @@ function sendBadGateway(response: ServerResponse, error: Error): void {
 
 // Create an HTTP server that forwards requests to the appropriate upstream service based on the request path.
 const server = createServer((incoming, outgoing) => {
-  const requestUrl = new URL(incoming.url ?? "/", "http://gateway.local");
+  let requestUrl: URL;
+  try {
+    requestUrl = new URL(incoming.url ?? "/", "http://gateway.local");
+  } catch (error) {
+    console.warn("Rejected malformed gateway request URL:", error);
+    outgoing.writeHead(400, { "content-type": "application/json" });
+    outgoing.end(JSON.stringify({ error: "Invalid request URL" }));
+    return;
+  }
 
   if (requestUrl.pathname === "/health" && incoming.method === "GET") {
     outgoing.writeHead(200, { "content-type": "application/json" });
@@ -79,12 +99,8 @@ const server = createServer((incoming, outgoing) => {
   const target = getTarget(requestUrl.pathname);
   const headers = forwardableHeaders(incoming.headers);
   headers.host = target.host;
-  headers["x-forwarded-for"] = [
-    incoming.headers["x-forwarded-for"],
-    incoming.socket.remoteAddress,
-  ]
-    .filter(Boolean)
-    .join(", ");
+  // Do not trust a client-supplied X-Forwarded-For value unless a trusted-proxy policy is configured.
+  headers["x-forwarded-for"] = incoming.socket.remoteAddress;
   headers["x-forwarded-host"] = incoming.headers.host;
   headers["x-forwarded-proto"] =
     incoming.headers["x-forwarded-proto"] ?? "http";
@@ -109,7 +125,19 @@ const server = createServer((incoming, outgoing) => {
   );
 
   upstream.on("error", (error) => sendBadGateway(outgoing, error));
+  // Bound upstream waits so slow or stalled services cannot hold client connections indefinitely.
+  upstream.setTimeout(30_000, () => {
+    upstream.destroy(new Error("Upstream request timed out"));
+  });
   incoming.on("aborted", () => upstream.destroy());
+  incoming.on("error", (error) => {
+    console.warn("Incoming gateway request failed:", error);
+    upstream.destroy(error);
+  });
+  outgoing.on("error", (error) => {
+    console.warn("Gateway response stream failed:", error);
+    upstream.destroy();
+  });
   outgoing.on("close", () => {
     if (!outgoing.writableEnded) upstream.destroy();
   });
@@ -120,6 +148,23 @@ const server = createServer((incoming, outgoing) => {
 server.listen(config.port, () => {
   console.info(`Gateway service listening on port ${config.port}`);
 });
+
+let shuttingDown = false;
+function shutdown(signal: string): void {
+  if (shuttingDown) return;
+  shuttingDown = true;
+  console.info(`${signal} received; shutting down gateway service`);
+
+  server.close((error) => {
+    if (error) {
+      console.error("Failed to close the gateway server cleanly:", error);
+      process.exitCode = 1;
+    }
+  });
+}
+
+process.once("SIGINT", () => void shutdown("SIGINT"));
+process.once("SIGTERM", () => void shutdown("SIGTERM"));
 
 server.on("error", (error) => {
   console.error("Failed to start the gateway service:", error);

@@ -24,29 +24,45 @@ let channelPromise: Promise<ConfirmChannel> | undefined;
 async function getPublisherChannel(): Promise<ConfirmChannel> {
   if (!channelPromise) {
     channelPromise = (async () => {
-      connection = await amqp.connect(config.rabbitmqUrl);
-      connection.on("error", (error) =>
+      const activeConnection = await amqp.connect(config.rabbitmqUrl);
+      connection = activeConnection;
+      activeConnection.on("error", (error) =>
         logger("error", "RabbitMQ publisher connection error:", error),
       );
-      connection.on("close", () => {
-        connection = undefined;
-        channelPromise = undefined;
+      activeConnection.on("close", () => {
+        if (connection === activeConnection) {
+          connection = undefined;
+          channelPromise = undefined;
+        }
         logger(
           "warn",
           "RabbitMQ connection closed; signup events will reconnect on demand",
         );
       });
 
-      const channel = await connection.createConfirmChannel();
-      await channel.assertQueue(config.notificationQueue, { durable: true });
-      logger(
-        "info",
-        `RabbitMQ publisher connected to queue ${config.notificationQueue}`,
-      );
-      return channel;
+      try {
+        const channel = await activeConnection.createConfirmChannel();
+        await channel.assertQueue(config.notificationQueue, { durable: true });
+        logger(
+          "info",
+          `RabbitMQ publisher connected to queue ${config.notificationQueue}`,
+        );
+        return channel;
+      } catch (error) {
+        if (connection === activeConnection) connection = undefined;
+        try {
+          await activeConnection.close();
+        } catch (closeError) {
+          logger(
+            "warn",
+            "Failed to close RabbitMQ after publisher setup failed:",
+            closeError,
+          );
+        }
+        throw error;
+      }
     })().catch((error: unknown) => {
       channelPromise = undefined;
-      connection = undefined;
       throw error; // Propagate the error to the caller so it can be logged and handled.
     });
   }

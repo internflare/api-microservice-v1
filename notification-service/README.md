@@ -1,6 +1,6 @@
 # Internflare Notification Service
 
-Standalone ESM Node.js/TypeScript service for sending transactional email notifications with Resend. It consumes account-signup events from RabbitMQ so the auth service can trigger a welcome email. In-app notifications are intentionally not part of this service yet.
+Standalone ESM Node.js/TypeScript service for sending transactional email notifications with Resend. It consumes account-signup events from auth-service and job-posting/application events from jobListing-service through separate RabbitMQ queues. In-app notifications are intentionally not part of this service yet.
 
 The service exposes one authenticated email delivery endpoint with a typed set of notification categories. It sends the supplied subject and message through a consistent, escaped email template and stores a notification record in PostgreSQL after Resend accepts the email.
 
@@ -10,7 +10,7 @@ src/
   docs/         OpenAPI 3.1 specification and Swagger UI setup
   middleware/   API-key authentication and error handling
   routes/       Health and email notification routes
-  services/     Resend integration, email rendering, and RabbitMQ consumer
+  services/     Resend integration, email rendering, and RabbitMQ consumers
   db/           PostgreSQL pool and schema migration
   models/       Typed notification persistence
   migrations/   PostgreSQL schema migrations
@@ -51,7 +51,9 @@ For production, run `npm run build` followed by `npm start`. Deploy the `migrati
 - Send email notification: `POST /api/v1/notifications/email`
 
 All paths are relative to the service origin. Email delivery requires the `Authorization: Bearer <NOTIFICATION_API_KEY>` header. The health check and documentation are public.
-The service declares and consumes the durable `internflare.notifications.email` queue at startup. RabbitMQ redelivers events that fail processing; signup events are acknowledged only after Resend accepts the email and PostgreSQL stores the notification. The service must be able to connect to RabbitMQ before it starts listening for HTTP requests.
+The service declares and consumes the single durable `internflare.notifications` queue at startup. It dispatches messages by `eventType` (`user.signed_up`, `job.published`, or `job.application_submitted`). RabbitMQ redelivers events that fail processing; signup events are acknowledged only after Resend accepts the email and PostgreSQL stores the notification. Job listing events are acknowledged after their requested emails are accepted by Resend. Job notifications are at-least-once and may be duplicated if delivery succeeds but the consumer loses its connection before acknowledging the event.
+
+For `job.published`, the event carries follower email recipients because follower relationships are not yet available to this service. For `job.application_submitted`, it carries the company's hiring-contact email. These are temporary integration inputs; connect them to the company/follower and application data sources before production use. The notification service must be able to connect to RabbitMQ before it starts listening for HTTP requests.
 
 ### Example request
 
