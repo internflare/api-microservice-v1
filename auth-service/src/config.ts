@@ -62,6 +62,12 @@ const rabbitmqUrl = process.env.RABBITMQ_URL?.trim() || "amqp://localhost:5672";
 if (!["amqp:", "amqps:"].includes(new URL(rabbitmqUrl).protocol)) {
   throw new Error("RABBITMQ_URL must use the amqp:// or amqps:// protocol");
 }
+// Internal service shared secret for secure service-to-service communication
+const internalServiceSecret =
+  process.env.INTERNAL_SERVICE_SECRET?.trim() ||
+  (nodeEnv === "production"
+    ? requireEnv("INTERNAL_SERVICE_SECRET")
+    : "internflare-internal-microservice-secret-key-32chars");
 
 const config = {
   nodeEnv,
@@ -83,6 +89,7 @@ const config = {
   sentryTracesSampleRate: parseSampleRate(
     process.env.SENTRY_TRACES_SAMPLE_RATE,
   ),
+  internalServiceSecret,
   trustedOrigins: [...trustedOrigins],
 };
 
