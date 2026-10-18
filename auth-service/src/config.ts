@@ -10,6 +10,15 @@ function requireEnv(name: string): string {
   return value;
 }
 
+function parseSampleRate(value: string | undefined): number {
+  if (!value?.trim()) return 0.1;
+  const rate = Number(value);
+  if (!Number.isFinite(rate) || rate < 0 || rate > 1) {
+    throw new Error("SENTRY_TRACES_SAMPLE_RATE must be between 0 and 1");
+  }
+  return rate;
+}
+
 //get variables
 const googleClientId = requireEnv("GOOGLE_CLIENT_ID");
 const googleClientSecret = requireEnv("GOOGLE_CLIENT_SECRET");
@@ -49,6 +58,11 @@ const trustedOrigins = new Set([
     .filter(Boolean),
 ]);
 
+const rabbitmqUrl = process.env.RABBITMQ_URL?.trim() || "amqp://localhost:5672";
+if (!["amqp:", "amqps:"].includes(new URL(rabbitmqUrl).protocol)) {
+  throw new Error("RABBITMQ_URL must use the amqp:// or amqps:// protocol");
+}
+
 const config = {
   nodeEnv,
   port,
@@ -63,6 +77,12 @@ const config = {
   linkedinClientSecret,
   authSecret,
   authUrl,
+  rabbitmqUrl,
+  notificationQueue: "internflare.notifications",
+  sentryDsn: process.env.SENTRY_DSN?.trim() || undefined,
+  sentryTracesSampleRate: parseSampleRate(
+    process.env.SENTRY_TRACES_SAMPLE_RATE,
+  ),
   trustedOrigins: [...trustedOrigins],
 };
 

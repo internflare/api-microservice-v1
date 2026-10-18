@@ -28,7 +28,11 @@ npm install
 Copy-Item .env.example .env
 ```
 
-Set `DATABASE_URL` to a reachable PostgreSQL database and replace `BETTER_AUTH_SECRET` with a cryptographically random secret of at least 32 characters. `BETTER_AUTH_URL` is the public base URL of this service; `CORS_ORIGINS` is a comma-separated list of frontend origins allowed to make credentialed requests.
+Set `DATABASE_URL` to a reachable PostgreSQL database and place its CA certificate at `backend/ca.pem`, shared by backend services. The service uses that certificate with `sslmode=verify-full` to validate both the database certificate and hostname. Replace `BETTER_AUTH_SECRET` with a cryptographically random secret of at least 32 characters. `BETTER_AUTH_URL` is the public base URL of this service; `CORS_ORIGINS` is a comma-separated list of frontend origins allowed to make credentialed requests.
+
+Set `RABBITMQ_URL` to the RabbitMQ broker used by `backend/notification-service`. After Better Auth successfully creates a user record, auth-service publishes a persistent `user.signed_up` message to `RABBITMQ_NOTIFICATION_QUEUE` (default `internflare.notifications.email`). Signup remains successful if the broker is unavailable; the publish failure is logged, and that event will not produce a welcome email.
+
+Set `SENTRY_DSN` to this service's Sentry Node project DSN to enable error and performance reporting. `SENTRY_TRACES_SAMPLE_RATE` optionally controls transaction sampling (default `0.1`). See the workspace [Sentry setup](../../SENTRY.md).
 
 Create Better Auth's database tables and start the service:
 

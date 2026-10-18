@@ -1,5 +1,7 @@
+import "./instrument.js";
 import cors from "cors";
 import express from "express";
+import * as Sentry from "@sentry/node";
 import { errorHandler } from "./middleware/error-handler.js";
 import { notFoundHandler } from "./middleware/not-found-handler.js";
 import { authRoutes } from "./routes/auth.routes.js";
@@ -8,6 +10,7 @@ import { sessionRoutes } from "./routes/session.routes.js";
 import { config } from "./config.js";
 
 const app = express();
+const apiVersion = "/api/v1";
 
 app.disable("x-powered-by");
 
@@ -25,9 +28,10 @@ app.use(authRoutes);
 
 app.use(express.json({ limit: "16kb" }));
 
-app.use("/api/health", healthRoutes);
-app.use("/api/me", sessionRoutes);
+app.use(`${apiVersion}/health`, healthRoutes);
+app.use(`${apiVersion}/me`, sessionRoutes);
 app.use(notFoundHandler);
+Sentry.setupExpressErrorHandler(app);
 app.use(errorHandler);
 
 export { app };
