@@ -15,6 +15,36 @@ services:
       retries: 10
       start_period: 10s
 
+  gateway-service:
+    build:
+      context: .
+      dockerfile: gateway-service/Dockerfile
+    restart: unless-stopped
+    environment:
+      NODE_ENV: development
+      PORT: "3000"
+      AUTH_SERVICE_URL: http://auth-service:3001
+      NOTIFICATION_SERVICE_URL: http://notification-service:3002
+    depends_on:
+      auth-service:
+        condition: service_healthy
+      notification-service:
+        condition: service_healthy
+    ports:
+      - "3000:3000"
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://127.0.0.1:3000/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
+        ]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
+
   auth-service:
     build:
       context: .
