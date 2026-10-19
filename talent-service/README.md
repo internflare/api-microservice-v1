@@ -17,6 +17,8 @@ Autonomous microservice managing Talent Profile CRUD, Completeness Scoring Engin
   - PostgreSQL Generalized Inverted Indexes (`GIN`) on `skills` and `preferred_roles` for high-throughput candidate searches using PostgreSQL array containment.
 - **Decoupled Auth Handshake:**
   - Remote session validation against `auth-service` (`/api/auth/get-session`) with mock user support (`x-test-user-id`) for automated testing.
+- **Interactive Swagger / OpenAPI Documentation:**
+  - Complete OpenAPI 3.1.0 specifications and interactive Swagger UI exposed at `/api/v1/docs` (and `/docs`) and raw specification at `/api/v1/openapi.json`.
 - **API Gateway Routing:**
   - Transparently proxied by `gateway-service` on port `3000` via `/api/v1/talent/*`.
 

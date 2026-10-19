@@ -4,6 +4,7 @@ import { TalentController } from "../src/controllers/talent.controller.js";
 import { requireAuth } from "../src/middleware/auth.js";
 import { TalentModel } from "../src/models/talent.model.js";
 import { pool } from "../src/db/pool.js";
+import { openApiDocument } from "../src/docs/openapi.js";
 import { calculateProfileCompleteness } from "../src/services/completeness.service.js";
 import type {
   TalentProfile,
@@ -542,3 +543,18 @@ test("Suite 5: Talent Model Database Queries", async (t) => {
     }
   });
 });
+
+// ============================================================================
+// SUITE 6: OpenAPI & Swagger Documentation Contracts
+// ============================================================================
+test("Suite 6: OpenAPI & Swagger Documentation", async (t) => {
+  await t.test("OpenAPI spec includes all talent routes and components", () => {
+    assert.equal(openApiDocument.openapi, "3.1.0");
+    assert.ok(openApiDocument.paths["/api/v1/talent/profile"]);
+    assert.ok(openApiDocument.paths["/api/v1/talent/profile/me"]);
+    assert.ok(openApiDocument.paths["/api/v1/talent/profiles"]);
+    assert.ok(openApiDocument.components.schemas.TalentProfile);
+    assert.ok(openApiDocument.components.schemas.CompletenessCalculation);
+  });
+});
+

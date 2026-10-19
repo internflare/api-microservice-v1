@@ -12,6 +12,7 @@ export const openApiDocument = {
     { name: "Authentication", description: "Forwarded to auth-service" },
     { name: "Opportunities", description: "Forwarded to jobListing-service" },
     { name: "Notifications", description: "Forwarded to notification-service" },
+    { name: "Talent", description: "Forwarded to talent-service" },
   ],
   paths: {
     "/health": {
@@ -107,6 +108,50 @@ export const openApiDocument = {
           "202": { description: "Email accepted for delivery" },
           "401": { description: "Notification API key is missing or invalid" },
           "502": { description: "Notification service is unavailable" },
+        },
+      },
+    },
+    "/api/v1/talent/profile/me": {
+      get: {
+        tags: ["Talent"],
+        summary: "Get current talent profile and completeness score",
+        description:
+          "Forwarded to talent-service. Returns authenticated talent's profile, 100% weighted completeness calculation, and actionable missing-field onboarding prompts.",
+        responses: {
+          "200": { description: "Current talent profile and completeness" },
+          "401": { description: "Unauthorized" },
+          "404": { description: "Profile not found" },
+          "502": { description: "Talent service is unavailable" },
+        },
+      },
+      patch: {
+        tags: ["Talent"],
+        summary: "Partially update current talent profile",
+        description: "Forwarded to talent-service. Recalculates completeness score.",
+        responses: {
+          "200": { description: "Updated profile" },
+          "400": { description: "Validation failure" },
+          "401": { description: "Unauthorized" },
+          "502": { description: "Talent service is unavailable" },
+        },
+      },
+    },
+    "/api/v1/talent/profiles": {
+      get: {
+        tags: ["Talent"],
+        summary: "Search candidate directory",
+        description:
+          "Forwarded to talent-service. Filter by skills, country, availability, and min_completeness.",
+        parameters: [
+          { name: "skills", in: "query", schema: { type: "string" } },
+          { name: "country", in: "query", schema: { type: "string" } },
+          { name: "availability", in: "query", schema: { type: "string" } },
+          { name: "min_completeness", in: "query", schema: { type: "integer", minimum: 0, maximum: 100 } },
+        ],
+        responses: {
+          "200": { description: "Matching candidates" },
+          "400": { description: "Invalid parameters" },
+          "502": { description: "Talent service is unavailable" },
         },
       },
     },

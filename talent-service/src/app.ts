@@ -1,6 +1,8 @@
 import cors from "cors";
 import express, { type Express, type Request, type Response, type NextFunction } from "express";
+import swaggerUi from "swagger-ui-express";
 import { config } from "./config.js";
+import { openApiDocument } from "./docs/openapi.js";
 import { talentRoutes } from "./routes/talent.routes.js";
 
 const app: Express = express();
@@ -13,6 +15,16 @@ app.use(
 );
 
 app.use(express.json());
+
+// OpenAPI Documentation & Interactive Swagger UI
+app.get("/openapi.json", (_req: Request, res: Response) => {
+  res.json(openApiDocument);
+});
+app.get("/api/v1/openapi.json", (_req: Request, res: Response) => {
+  res.json(openApiDocument);
+});
+app.use("/docs", swaggerUi.serve, swaggerUi.setup(openApiDocument));
+app.use("/api/v1/docs", swaggerUi.serve, swaggerUi.setup(openApiDocument));
 
 // Health Check Endpoints
 const healthHandler = (_req: Request, res: Response) => {
