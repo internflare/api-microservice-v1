@@ -27,6 +27,7 @@ services:
       NOTIFICATION_SERVICE_URL: http://notification-service:3002
       JOB_LISTING_SERVICE_URL: http://joblisting-service:3003
       COMPANY_SERVICE_URL: http://company-service:3004
+      TALENT_SERVICE_URL: http://talent-service:3005
     depends_on:
       auth-service:
         condition: service_healthy
@@ -35,6 +36,8 @@ services:
       joblisting-service:
         condition: service_healthy
       company-service:
+        condition: service_healthy
+      talent-service:
         condition: service_healthy
     ports:
       - "3000:3000"
@@ -161,6 +164,35 @@ services:
           "node",
           "-e",
           "fetch('http://127.0.0.1:3004/api/v1/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
+        ]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+
+  talent-service:
+    build:
+      context: .
+      dockerfile: talent-service/Dockerfile
+    restart: unless-stopped
+    env_file:
+      - ./talent-service/.env
+    environment:
+      NODE_ENV: development
+      PORT: "3005"
+      AUTH_SERVICE_URL: http://auth-service:3001
+    depends_on:
+      auth-service:
+        condition: service_healthy
+    ports:
+      - "3005:3005"
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://127.0.0.1:3005/api/v1/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
         ]
       interval: 30s
       timeout: 5s

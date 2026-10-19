@@ -91,6 +91,15 @@ function getTarget(pathname: string): URL {
     return config.companyServiceUrl;
   }
 
+  if (
+    pathname === "/api/v1/talent" ||
+    pathname.startsWith("/api/v1/talent/") ||
+    pathname === "/api/talent" ||
+    pathname.startsWith("/api/talent/")
+  ) {
+    return config.talentServiceUrl;
+  }
+
   return config.authServiceUrl;
 }
 

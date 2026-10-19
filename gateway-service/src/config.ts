@@ -40,6 +40,10 @@ const config = {
     "COMPANY_SERVICE_URL",
     "http://localhost:3004",
   ),
+  talentServiceUrl: parseServiceUrl(
+    "TALENT_SERVICE_URL",
+    "http://localhost:3005",
+  ),
 };
 
 export { config };
