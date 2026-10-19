@@ -74,6 +74,23 @@ function getTarget(pathname: string): URL {
     return config.notificationServiceUrl;
   }
 
+  if (
+    pathname === "/api/v1/companies" ||
+    pathname.startsWith("/api/v1/companies/") ||
+    pathname === "/api/companies" ||
+    pathname.startsWith("/api/companies/") ||
+    pathname === "/api/v1/admin/verifications" ||
+    pathname.startsWith("/api/v1/admin/verifications/") ||
+    pathname === "/api/admin/verifications" ||
+    pathname.startsWith("/api/admin/verifications/") ||
+    pathname === "/api/v1/internal/companies" ||
+    pathname.startsWith("/api/v1/internal/companies/") ||
+    pathname === "/api/internal/companies" ||
+    pathname.startsWith("/api/internal/companies/")
+  ) {
+    return config.companyServiceUrl;
+  }
+
   return config.authServiceUrl;
 }
 

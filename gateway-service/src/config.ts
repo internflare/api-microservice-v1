@@ -36,6 +36,10 @@ const config = {
     "JOB_LISTING_SERVICE_URL",
     "http://localhost:3003",
   ),
+  companyServiceUrl: parseServiceUrl(
+    "COMPANY_SERVICE_URL",
+    "http://localhost:3004",
+  ),
 };
 
 export { config };

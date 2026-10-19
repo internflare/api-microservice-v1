@@ -26,12 +26,15 @@ services:
       AUTH_SERVICE_URL: http://auth-service:3001
       NOTIFICATION_SERVICE_URL: http://notification-service:3002
       JOB_LISTING_SERVICE_URL: http://joblisting-service:3003
+      COMPANY_SERVICE_URL: http://company-service:3004
     depends_on:
       auth-service:
         condition: service_healthy
       notification-service:
         condition: service_healthy
       joblisting-service:
+        condition: service_healthy
+      company-service:
         condition: service_healthy
     ports:
       - "3000:3000"
@@ -129,6 +132,35 @@ services:
           "node",
           "-e",
           "fetch('http://127.0.0.1:3003/api/v1/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
+        ]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+
+  company-service:
+    build:
+      context: .
+      dockerfile: company-service/Dockerfile
+    restart: unless-stopped
+    env_file:
+      - ./company-service/.env
+    environment:
+      NODE_ENV: development
+      PORT: "3004"
+      AUTH_SERVICE_URL: http://auth-service:3001
+    depends_on:
+      auth-service:
+        condition: service_healthy
+    ports:
+      - "3004:3004"
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://127.0.0.1:3004/api/v1/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
         ]
       interval: 30s
       timeout: 5s
