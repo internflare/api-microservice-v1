@@ -2,12 +2,14 @@ import "./instrument.js";
 import cors from "cors";
 import express from "express";
 import * as Sentry from "@sentry/node";
+import swaggerUi from "swagger-ui-express";
 import { errorHandler } from "./middleware/error-handler.js";
 import { notFoundHandler } from "./middleware/not-found-handler.js";
 import { authRoutes } from "./routes/auth.routes.js";
 import { sessionRoutes } from "./routes/session.routes.js";
 import { healthRoutes } from "./routes/health.routes.js";
 import { config } from "./config.js";
+import { openApiDocument } from "./docs/openapi.js";
 
 const app = express();
 const apiVersion = "/api/v1";
@@ -22,6 +24,15 @@ app.use(
     },
     credentials: true,
   }),
+);
+
+app.get("/api/v1/openapi.json", (_request, response) => {
+  response.json(openApiDocument);
+});
+app.use(
+  "/api/v1/docs",
+  swaggerUi.serve,
+  swaggerUi.setup(openApiDocument),
 );
 
 app.use(authRoutes);

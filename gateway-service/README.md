@@ -11,6 +11,8 @@ The gateway provides one HTTP entry point for the auth and notification services
 
 The gateway listens on port `3000`. Set `AUTH_SERVICE_URL`, `NOTIFICATION_SERVICE_URL`, and `JOB_LISTING_SERVICE_URL` to the HTTP(S) origins of the upstream services; they default to `http://localhost:3001`, `http://localhost:3002`, and `http://localhost:3003` for local development.
 
+Gateway Swagger UI: `GET /docs`. Gateway OpenAPI JSON: `GET /openapi.json`. The gateway document lists public routing entry points; each upstream service exposes its complete API specification on its own `/api/v1/docs` and `/api/v1/openapi.json` routes.
+
 ## Run locally
 
 ```powershell

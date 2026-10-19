@@ -64,6 +64,20 @@ type ConsumerSession = {
 const wait = (milliseconds: number) =>
   new Promise((resolve) => setTimeout(resolve, milliseconds));
 
+function isTransientRabbitError(error: unknown): boolean {
+  if (typeof error !== "object" || error === null || !("code" in error)) {
+    return false;
+  }
+  return [
+    "ECONNREFUSED",
+    "ECONNRESET",
+    "ETIMEDOUT",
+    "EHOSTUNREACH",
+    "ENETUNREACH",
+    "ENOTFOUND",
+  ].includes(String(error.code));
+}
+
 async function createConsumerSession(
   onMessage: (message: amqp.ConsumeMessage | null, channel: Channel) => void,
 ): Promise<ConsumerSession> {
@@ -281,7 +295,25 @@ async function startSignupNotificationConsumer(): Promise<
     });
   };
 
-  session = await createConsumerSession(processMessages);
+  // RabbitMQ may pass its container health check before the AMQP listener is ready.
+  while (!stopping && !session) {
+    try {
+      session = await createConsumerSession(processMessages);
+    } catch (error) {
+      if (!isTransientRabbitError(error)) throw error;
+      logger(
+        "warn",
+        "RabbitMQ is not ready; retrying the notification consumer in 3 seconds:",
+        error,
+      );
+      await wait(3_000);
+    }
+  }
+
+  if (!session) {
+    throw new Error("Notification consumer stopped before RabbitMQ connected");
+  }
+
   const reconnectTask = (async () => {
     let activeSession: ConsumerSession | undefined = session;
     while (!stopping) {

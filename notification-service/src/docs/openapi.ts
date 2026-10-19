@@ -18,10 +18,18 @@ export const openApiDocument = {
         summary: "Check service health",
         responses: {
           "200": {
-            description: "Service is healthy",
+            description: "Service and database are healthy",
             content: {
               "application/json": {
                 schema: { $ref: "#/components/schemas/HealthResponse" },
+              },
+              "503": {
+                description: "The notification database is unavailable",
+                content: {
+                  "application/json": {
+                    schema: { $ref: "#/components/schemas/UnavailableResponse" },
+                  },
+                },
               },
             },
           },
@@ -139,6 +147,80 @@ export const openApiDocument = {
           },
         },
       },
+      JobPublishedEvent: {
+        type: "object",
+        description:
+          "JobListing-service event consumed from the shared `internflare.notifications` queue to email company followers.",
+        required: ["eventId", "eventType", "occurredAt", "opportunity", "recipients"],
+        properties: {
+          eventId: { type: "string", format: "uuid" },
+          eventType: { type: "string", const: "job.published" },
+          occurredAt: { type: "string", format: "date-time" },
+          opportunity: {
+            type: "object",
+            required: [
+              "id",
+              "company_id",
+              "title",
+              "description",
+              "location",
+              "work_arrangement",
+              "application_deadline",
+            ],
+            properties: {
+              id: { type: "string", format: "uuid" },
+              company_id: { type: ["string", "null"], format: "uuid" },
+              title: { type: "string" },
+              description: { type: "string" },
+              location: { type: ["string", "null"] },
+              work_arrangement: { type: "string" },
+              application_deadline: {
+                type: ["string", "null"],
+                format: "date-time",
+              },
+            },
+          },
+          recipients: {
+            type: "array",
+            items: { $ref: "#/components/schemas/NotificationRecipient" },
+          },
+        },
+      },
+      JobApplicationSubmittedEvent: {
+        type: "object",
+        description:
+          "JobListing-service event consumed from the shared notification queue to email the hiring contact.",
+        required: ["eventId", "eventType", "occurredAt", "application", "recipient"],
+        properties: {
+          eventId: { type: "string", format: "uuid" },
+          eventType: { type: "string", const: "job.application_submitted" },
+          occurredAt: { type: "string", format: "date-time" },
+          application: {
+            type: "object",
+            required: [
+              "opportunityId",
+              "opportunityTitle",
+              "applicantName",
+              "applicantEmail",
+            ],
+            properties: {
+              opportunityId: { type: "string", format: "uuid" },
+              opportunityTitle: { type: "string" },
+              applicantName: { type: "string" },
+              applicantEmail: { type: "string", format: "email" },
+            },
+          },
+          recipient: { $ref: "#/components/schemas/NotificationRecipient" },
+        },
+      },
+      NotificationRecipient: {
+        type: "object",
+        required: ["email"],
+        properties: {
+          email: { type: "string", format: "email" },
+          name: { type: "string", maxLength: 120 },
+        },
+      },
       EmailAction: {
         type: "object",
         additionalProperties: false,
@@ -209,6 +291,11 @@ export const openApiDocument = {
         type: "object",
         required: ["status"],
         properties: { status: { type: "string", const: "ok" } },
+      },
+      UnavailableResponse: {
+        type: "object",
+        required: ["status"],
+        properties: { status: { type: "string", const: "unavailable" } },
       },
       ErrorResponse: {
         type: "object",

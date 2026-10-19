@@ -17,6 +17,7 @@ Set `DATABASE_URL` to the PostgreSQL database for opportunities. If the database
 - `GET /api/v1/opportunities/:id` returns one opportunity.
 - `POST /api/v1/opportunities` creates an opportunity and queues a job-posted notification when follower recipients are provided.
 - `POST /api/v1/opportunities/:id/applications` queues an email notification to the hiring contact.
+- `GET /api/v1/openapi.json` returns the OpenAPI specification; `GET /api/v1/docs` opens Swagger UI.
 
 List query parameters include `page`, `page_size` (maximum 100), `sort_by` (`created_at`, `updated_at`, `application_deadline`, `start_date`, or `title`), `sort_order` (`asc` or `desc`), `opportunity_type`, `employment_type`, `experience_level`, `work_arrangement`, `country`, `status`, `is_paid`, `search`, `skills` (comma-separated), and `company_id`.
 

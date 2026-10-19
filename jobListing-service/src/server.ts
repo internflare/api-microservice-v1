@@ -8,9 +8,44 @@ import {
 } from "./services/notification-publisher.service.js";
 import { logger } from "./utils/logger.js";
 
+const wait = (milliseconds: number) =>
+  new Promise((resolve) => setTimeout(resolve, milliseconds));
+
+function isTransientRabbitError(error: unknown): boolean {
+  if (typeof error !== "object" || error === null || !("code" in error)) {
+    return false;
+  }
+  return [
+    "ECONNREFUSED",
+    "ECONNRESET",
+    "ETIMEDOUT",
+    "EHOSTUNREACH",
+    "ENETUNREACH",
+    "ENOTFOUND",
+  ].includes(String(error.code));
+}
+
+// Keep the service alive during broker startup; Compose health checks will hold the gateway until it reconnects.
+async function connectToNotificationQueue(): Promise<void> {
+  while (true) {
+    try {
+      await connectNotificationPublisher();
+      return;
+    } catch (error) {
+      if (!isTransientRabbitError(error)) throw error;
+      logger(
+        "warn",
+        "RabbitMQ is not ready; retrying the job notification publisher in 3 seconds:",
+        error,
+      );
+      await wait(3_000);
+    }
+  }
+}
+
 async function start(): Promise<void> {
   await migrateDatabase();
-  await connectNotificationPublisher();
+  await connectToNotificationQueue();
 
   const server = app.listen(config.port, () => {
     logger("info", `Job listing service listening on port ${config.port}`);

@@ -36,11 +36,17 @@ The service health checks are available at:
 - Auth: `http://localhost:3001/api/v1/health`
 - Notification: `http://localhost:3002/api/v1/health`
 - Job listings: `http://localhost:3003/api/v1/health`
+- Gateway Swagger UI: `http://localhost:3000/docs`
+- Gateway OpenAPI JSON: `http://localhost:3000/openapi.json`
+- Auth Swagger UI: `http://localhost:3001/api/v1/docs`
+- Auth OpenAPI JSON: `http://localhost:3001/api/v1/openapi.json`
+- Notification Swagger UI: `http://localhost:3002/api/v1/docs`
+- Notification OpenAPI JSON: `http://localhost:3002/api/v1/openapi.json`
+- Job listing Swagger UI: `http://localhost:3003/api/v1/docs`
+- Job listing OpenAPI JSON: `http://localhost:3003/api/v1/openapi.json`
 - Notification through gateway: `http://localhost:3000/api/v1/notifications`
 - Job listings through gateway: `http://localhost:3000/api/v1/opportunities`
 - Apply for a job through gateway: `POST http://localhost:3000/api/v1/opportunities/{id}/applications`
-- Notification Swagger UI: `http://localhost:3002/api/v1/docs`
-- Notification Swagger UI through gateway: `http://localhost:3000/api/v1/docs`
 
 View logs with `docker compose logs -f gateway-service auth-service notification-service joblisting-service`. Stop the stack with `docker compose down`. To also remove RabbitMQ's persisted data, run `docker compose down -v`.
 

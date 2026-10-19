@@ -6,7 +6,20 @@ import {
   type ServerResponse,
 } from "node:http";
 import { request as httpsRequest } from "node:https";
+import express from "express";
+import swaggerUi from "swagger-ui-express";
 import { config } from "./config.js";
+import { openApiDocument } from "./docs/openapi.js";
+
+const documentationApp = express();
+documentationApp.get("/openapi.json", (_request, response) => {
+  response.json(openApiDocument);
+});
+documentationApp.use(
+  "/docs",
+  swaggerUi.serve,
+  swaggerUi.setup(openApiDocument),
+);
 
 // Hop-by-hop headers are headers that are meaningful only for a single transport-level connection and should not be forwarded by proxies or gateways. See https://www.rfc-editor.org/rfc/rfc2616#section-13.5.1
 const hopByHopHeaders = new Set([
@@ -87,6 +100,15 @@ const server = createServer((incoming, outgoing) => {
     console.warn("Rejected malformed gateway request URL:", error);
     outgoing.writeHead(400, { "content-type": "application/json" });
     outgoing.end(JSON.stringify({ error: "Invalid request URL" }));
+    return;
+  }
+
+  if (
+    requestUrl.pathname === "/openapi.json" ||
+    requestUrl.pathname === "/docs" ||
+    requestUrl.pathname.startsWith("/docs/")
+  ) {
+    documentationApp(incoming, outgoing);
     return;
   }
 

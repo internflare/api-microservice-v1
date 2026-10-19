@@ -7,6 +7,7 @@ RUN npm ci
 # Compile TypeScript into dist/ inside the image.
 FROM dependencies AS build
 COPY auth-service/tsconfig.json ./
+COPY auth-service/tsconfig.build.json ./
 COPY auth-service/src ./src
 RUN npm run build
 
