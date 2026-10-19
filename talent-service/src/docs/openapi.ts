@@ -513,6 +513,12 @@ export const openApiDocument = {
         },
         required: ["success", "error"],
       },
+      UnavailableResponse: {
+        type: "object",
+        required: ["status"],
+        properties: { status: { type: "string", const: "unavailable" } },
+      },
     },
   },
-};
+} as const;
+
