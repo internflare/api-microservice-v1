@@ -5,10 +5,6 @@ import * as Sentry from "@sentry/node";
 import { errorHandler } from "./middleware/error-handler.js";
 import { notFoundHandler } from "./middleware/not-found-handler.js";
 import { authRoutes } from "./routes/auth.routes.js";
-import { adminRoutes } from "./routes/admin.routes.js";
-import { companyRoutes } from "./routes/company.routes.js";
-import { healthRoutes } from "./routes/health.routes.js";
-import { internalRoutes } from "./routes/internal.routes.js";
 import { sessionRoutes } from "./routes/session.routes.js";
 import { config } from "./config.js";
 
@@ -31,13 +27,7 @@ app.use(authRoutes);
 
 app.use(express.json({ limit: "16kb" }));
 
-app.use(`${apiVersion}/health`, healthRoutes);
 app.use(`${apiVersion}/me`, sessionRoutes);
-app.use("/api/health", healthRoutes);
-app.use("/api/me", sessionRoutes);
-app.use("/api/companies", companyRoutes);
-app.use("/api/admin", adminRoutes);
-app.use("/api/internal", internalRoutes);
 app.use(notFoundHandler);
 Sentry.setupExpressErrorHandler(app);
 app.use(errorHandler);
