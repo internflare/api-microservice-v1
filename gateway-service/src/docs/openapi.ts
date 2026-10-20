@@ -9,11 +9,23 @@ export const openApiDocument = {
   servers: [{ url: "/", description: "Current gateway origin" }],
   tags: [
     { name: "Gateway", description: "Gateway health" },
-    { name: "Authentication", description: "Better Auth and session endpoints" },
-    { name: "Companies", description: "Company profiles, membership, and verification" },
+    {
+      name: "Authentication",
+      description: "Better Auth and session endpoints",
+    },
+    {
+      name: "Companies",
+      description: "Company profiles, membership, and verification",
+    },
     { name: "Administration", description: "Platform administrator endpoints" },
-    { name: "Internal", description: "Authenticated service-to-service endpoints" },
-    { name: "Opportunities", description: "Opportunity listings and applications" },
+    {
+      name: "Internal",
+      description: "Authenticated service-to-service endpoints",
+    },
+    {
+      name: "Opportunities",
+      description: "Opportunity listings and applications",
+    },
     { name: "Notifications", description: "Transactional email notifications" },
   ],
   paths: {
@@ -60,7 +72,10 @@ export const openApiDocument = {
             description: "Current session and user",
             content: {
               "application/json": {
-                schema: { type: "object", description: "Better Auth session and user." },
+                schema: {
+                  type: "object",
+                  description: "Better Auth session and user.",
+                },
               },
             },
           },
@@ -105,7 +120,9 @@ export const openApiDocument = {
           },
         },
         responses: {
-          "200": { description: "Sign-in succeeded; session cookie is returned" },
+          "200": {
+            description: "Sign-in succeeded; session cookie is returned",
+          },
           "401": { description: "Invalid email or password" },
           "429": { description: "Too many requests" },
           "502": { description: "Auth service is unavailable" },
@@ -127,7 +144,9 @@ export const openApiDocument = {
           },
         },
         responses: {
-          "200": { description: "Sign-in URL returned or browser redirect initiated" },
+          "200": {
+            description: "Sign-in URL returned or browser redirect initiated",
+          },
           "400": { description: "Invalid provider or sign-in request" },
           "502": { description: "Auth service is unavailable" },
         },
@@ -139,7 +158,10 @@ export const openApiDocument = {
           name: "provider",
           in: "path",
           required: true,
-          schema: { type: "string", enum: ["google", "apple", "twitter", "linkedin"] },
+          schema: {
+            type: "string",
+            enum: ["google", "apple", "twitter", "linkedin"],
+          },
         },
       ],
       get: {
@@ -158,7 +180,8 @@ export const openApiDocument = {
       post: {
         tags: ["Authentication"],
         summary: "Sign out the current session",
-        description: "Forwarded unchanged to Better Auth; provide the session cookie.",
+        description:
+          "Forwarded unchanged to Better Auth; provide the session cookie.",
         security: [{ sessionCookie: [] }],
         responses: {
           "200": { description: "Session signed out" },
@@ -171,7 +194,8 @@ export const openApiDocument = {
       get: {
         tags: ["Authentication"],
         summary: "Get the Better Auth session",
-        description: "Forwarded unchanged to Better Auth; provide the session cookie.",
+        description:
+          "Forwarded unchanged to Better Auth; provide the session cookie.",
         security: [{ sessionCookie: [] }],
         responses: {
           "200": { description: "Current session, or null when signed out" },
@@ -194,7 +218,10 @@ export const openApiDocument = {
           },
         },
         responses: {
-          "201": { description: "Company created; creator is registered as an administrator" },
+          "201": {
+            description:
+              "Company created; creator is registered as an administrator",
+          },
           "400": { description: "Company details failed validation" },
           "401": { description: "No valid session cookie was provided" },
           "502": { description: "Company service is unavailable" },
@@ -267,7 +294,9 @@ export const openApiDocument = {
           "400": { description: "Invalid invitation" },
           "401": { description: "Authentication is required" },
           "403": { description: "Company administrator access is required" },
-          "409": { description: "User is already a member or has a pending invitation" },
+          "409": {
+            description: "User is already a member or has a pending invitation",
+          },
         },
       },
     },
@@ -297,11 +326,15 @@ export const openApiDocument = {
       delete: {
         tags: ["Companies"],
         summary: "Remove a company member",
-        description: "Revokes member access without deleting the member record.",
+        description:
+          "Revokes member access without deleting the member record.",
         security: [{ sessionCookie: [] }],
         responses: {
           "200": { description: "Member access revoked" },
-          "400": { description: "The sole active company administrator cannot be removed" },
+          "400": {
+            description:
+              "The sole active company administrator cannot be removed",
+          },
           "401": { description: "Authentication is required" },
           "403": { description: "Company administrator access is required" },
           "404": { description: "Member not found" },
@@ -328,7 +361,9 @@ export const openApiDocument = {
           required: true,
           content: {
             "application/json": {
-              schema: { $ref: "#/components/schemas/SubmitVerificationRequest" },
+              schema: {
+                $ref: "#/components/schemas/SubmitVerificationRequest",
+              },
             },
           },
         },
@@ -363,7 +398,9 @@ export const openApiDocument = {
           required: true,
           content: {
             "application/json": {
-              schema: { $ref: "#/components/schemas/VerificationDecisionRequest" },
+              schema: {
+                $ref: "#/components/schemas/VerificationDecisionRequest",
+              },
             },
           },
         },
@@ -392,7 +429,9 @@ export const openApiDocument = {
         summary: "Get company access and membership for a user",
         security: [{ internalServiceKey: [] }],
         responses: {
-          "200": { description: "Company status, membership, and access decision" },
+          "200": {
+            description: "Company status, membership, and access decision",
+          },
           "401": { description: "Internal service key is missing or invalid" },
           "404": { description: "Company not found" },
         },
@@ -416,23 +455,69 @@ export const openApiDocument = {
         tags: ["Opportunities"],
         summary: "Search and paginate opportunities",
         parameters: [
-          { name: "page", in: "query", schema: { type: "integer", minimum: 1, default: 1 } },
-          { name: "page_size", in: "query", schema: { type: "integer", minimum: 1, maximum: 100, default: 20 } },
-          { name: "sort_by", in: "query", schema: { type: "string", enum: ["created_at", "updated_at", "application_deadline", "start_date", "title"], default: "created_at" } },
-          { name: "sort_order", in: "query", schema: { type: "string", enum: ["asc", "desc"], default: "desc" } },
+          {
+            name: "page",
+            in: "query",
+            schema: { type: "integer", minimum: 1, default: 1 },
+          },
+          {
+            name: "page_size",
+            in: "query",
+            schema: { type: "integer", minimum: 1, maximum: 100, default: 20 },
+          },
+          {
+            name: "sort_by",
+            in: "query",
+            schema: {
+              type: "string",
+              enum: [
+                "created_at",
+                "updated_at",
+                "application_deadline",
+                "start_date",
+                "title",
+              ],
+              default: "created_at",
+            },
+          },
+          {
+            name: "sort_order",
+            in: "query",
+            schema: { type: "string", enum: ["asc", "desc"], default: "desc" },
+          },
           { name: "opportunity_type", in: "query", schema: { type: "string" } },
           { name: "employment_type", in: "query", schema: { type: "string" } },
           { name: "experience_level", in: "query", schema: { type: "string" } },
           { name: "work_arrangement", in: "query", schema: { type: "string" } },
-          { name: "country", in: "query", schema: { type: "string", minLength: 2, maxLength: 2 } },
+          {
+            name: "country",
+            in: "query",
+            schema: { type: "string", minLength: 2, maxLength: 2 },
+          },
           { name: "status", in: "query", schema: { type: "string" } },
           { name: "is_paid", in: "query", schema: { type: "boolean" } },
-          { name: "search", in: "query", schema: { type: "string", maxLength: 200 } },
-          { name: "skills", in: "query", description: "Comma-separated skill names; all listed skills must match.", schema: { type: "string" } },
-          { name: "company_id", in: "query", schema: { type: "string", format: "uuid" } },
+          {
+            name: "search",
+            in: "query",
+            schema: { type: "string", maxLength: 200 },
+          },
+          {
+            name: "skills",
+            in: "query",
+            description:
+              "Comma-separated skill names; all listed skills must match.",
+            schema: { type: "string" },
+          },
+          {
+            name: "company_id",
+            in: "query",
+            schema: { type: "string", format: "uuid" },
+          },
         ],
         responses: {
-          "200": { description: "Page of opportunities and pagination metadata" },
+          "200": {
+            description: "Page of opportunities and pagination metadata",
+          },
           "400": { description: "Invalid query parameter" },
           "502": { description: "Job listing service is unavailable" },
         },
@@ -475,12 +560,15 @@ export const openApiDocument = {
       post: {
         tags: ["Opportunities"],
         summary: "Queue an application email to the hiring contact",
-        description: "This endpoint queues an email; applications are not persisted by this service.",
+        description:
+          "This endpoint queues an email; applications are not persisted by this service.",
         requestBody: {
           required: true,
           content: {
             "application/json": {
-              schema: { $ref: "#/components/schemas/ApplicationNotificationRequest" },
+              schema: {
+                $ref: "#/components/schemas/ApplicationNotificationRequest",
+              },
             },
           },
         },
@@ -510,8 +598,14 @@ export const openApiDocument = {
           "202": { description: "Email accepted and notification saved" },
           "400": { description: "Request body failed validation" },
           "401": { description: "Notification API key is missing or invalid" },
-          "500": { description: "Email was sent but the notification could not be saved" },
-          "502": { description: "Notification service or email provider is unavailable" },
+          "500": {
+            description:
+              "Email was sent but the notification could not be saved",
+          },
+          "502": {
+            description:
+              "Notification service or email provider is unavailable",
+          },
         },
       },
     },
@@ -522,7 +616,8 @@ export const openApiDocument = {
         type: "apiKey",
         in: "cookie",
         name: "better-auth.session_token",
-        description: "Session cookie returned by a successful Better Auth sign-in.",
+        description:
+          "Session cookie returned by a successful Better Auth sign-in.",
       },
       bearerAuth: {
         type: "http",
@@ -586,7 +681,10 @@ export const openApiDocument = {
         type: "object",
         required: ["provider"],
         properties: {
-          provider: { type: "string", enum: ["google", "apple", "twitter", "linkedin"] },
+          provider: {
+            type: "string",
+            enum: ["google", "apple", "twitter", "linkedin"],
+          },
           callbackURL: { type: "string", format: "uri" },
           errorCallbackURL: { type: "string", format: "uri" },
           newUserCallbackURL: { type: "string", format: "uri" },
@@ -656,7 +754,14 @@ export const openApiDocument = {
       },
       CreateOpportunityRequest: {
         type: "object",
-        required: ["source_type", "title", "description", "opportunity_type", "is_paid", "work_arrangement"],
+        required: [
+          "source_type",
+          "title",
+          "description",
+          "opportunity_type",
+          "is_paid",
+          "work_arrangement",
+        ],
         properties: {
           company_id: { type: ["string", "null"], format: "uuid" },
           external_company_name: { type: ["string", "null"] },
@@ -681,13 +786,17 @@ export const openApiDocument = {
           skills_required: { type: "array", items: { type: "string" } },
           duration_weeks: { type: ["integer", "null"] },
           start_date: { type: ["string", "null"], format: "date" },
-          application_deadline: { type: ["string", "null"], format: "date-time" },
+          application_deadline: {
+            type: ["string", "null"],
+            format: "date-time",
+          },
           openings: { type: ["integer", "null"] },
           status: { type: "string" },
           created_by: { type: ["string", "null"], format: "uuid" },
           follower_recipients: {
             type: "array",
-            description: "Temporary trusted-caller input for company followers.",
+            description:
+              "Temporary trusted-caller input for company followers.",
             items: {
               type: "object",
               required: ["email"],
@@ -713,7 +822,17 @@ export const openApiDocument = {
         type: "object",
         required: ["type", "user_id", "to", "subject", "message"],
         properties: {
-          type: { type: "string", enum: ["account", "application", "interview", "offer", "message", "system"] },
+          type: {
+            type: "string",
+            enum: [
+              "account",
+              "application",
+              "interview",
+              "offer",
+              "message",
+              "system",
+            ],
+          },
           user_id: { type: "string", minLength: 1 },
           to: { type: "string", format: "email" },
           recipientName: { type: "string", minLength: 1, maxLength: 120 },
