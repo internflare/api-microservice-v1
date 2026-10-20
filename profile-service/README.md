@@ -1,6 +1,6 @@
-# Internflare Company Service (`profile-service`)
+# Internflare Profile Service (`profile-service`)
 
-Standalone microservice managing Company Creation, Member Management, Verification Lifecycle, and Audit Trails for the Internflare platform (PRD §4.2, §4.3, §14; Employer Journey steps 33–34).
+Microservice managing company and talent profiles, company membership and verification, talent profile completeness, and candidate discovery.
 
 ---
 
@@ -12,8 +12,9 @@ Standalone microservice managing Company Creation, Member Management, Verificati
 - **Audit Ledger:** Append-only relational audit trail (`audit_logs`) tracking actor ID, action name, payload metadata, and client IP.
 - **Internal Cross-Service RPC:** Protected endpoints (`x-internal-service-key`) for downstream microservices (`job-service`, `workspace-service`, `billing-service`) to inspect company verification status and member permissions.
 - **Decoupled Auth Handshake:** Remote session validation against `auth-service` (`/api/auth/get-session`) with mock user support for automated testing.
+- **Talent Profiles:** Authenticated profile creation and updates, completeness scoring, and public candidate search.
 
-The company service listens on unversioned internal routes (for example, `/auth/employer-onboarding`). Public requests should use the gateway's versioned route, such as `POST http://localhost:3000/api/v1/auth/employer-onboarding`; the gateway strips `/api/v1` before forwarding.
+The service listens on unversioned internal routes (for example, `/auth/employer-onboarding` and `/talent/profile`). Public requests use the gateway's versioned routes, such as `POST http://localhost:3000/api/v1/auth/employer-onboarding` and `GET http://localhost:3000/api/v1/talent/profile/me`; the gateway strips `/api/v1` before forwarding. Talent endpoints retain `/api/talent/*` as a compatibility alias.
 
 ---
 
@@ -40,30 +41,41 @@ profile-service/
 │   │   ├── pool.ts                        # PostgreSQL connection pool
 │   │   ├── migrate.ts                     # Database migration runner
 │   │   └── migrations/
-│   │       └── 001_create_company_tables.sql
+│   │       ├── 001_create_company_tables.sql
+│   │       └── 001_create_talent_profiles.sql
 │   ├── types/
 │   │   ├── express.d.ts                   # Express Request augmentation
-│   │   └── company.types.ts               # Domain interfaces & contracts
+│   │   ├── company.types.ts               # Company domain contracts
+│   │   └── talent.types.ts                # Talent profile contracts
 │   ├── validators/
-│   │   └── company.validator.ts           # Zod request validation schemas
+│   │   ├── company.validator.ts           # Company request validation
+│   │   └── talent.validator.ts            # Talent profile and search validation
 │   ├── middleware/
 │   │   ├── auth.ts                        # Remote session introspection & admin RBAC
 │   │   ├── company-auth.ts                # Company membership & verification guards
 │   │   ├── internal-auth.ts               # Shared-secret service-to-service guard
 │   │   └── validate.ts                    # Generic Zod validation middleware
+│   ├── services/
+│   │   └── completeness.service.ts        # Talent profile completeness scoring
 │   ├── models/
-│   │   └── company.model.ts               # Atomic transactions & DB operations
+│   │   ├── company.model.ts               # Atomic transactions & DB operations
+│   │   └── talent.model.ts                # Talent persistence and search
 │   ├── controllers/
 │   │   ├── company.controller.ts          # Public company & member endpoints
 │   │   ├── admin.controller.ts            # Platform admin verification review
-│   │   └── internal.controller.ts         # Downstream microservice RPC endpoints
-│   └── routes/
+│   │   ├── internal.controller.ts         # Downstream microservice RPC endpoints
+│   │   └── talent.controller.ts           # Talent profile and discovery endpoints
+│   ├── routes/
 │       ├── company.routes.ts
 │       ├── admin.routes.ts
-│       └── internal.routes.ts
+│       ├── internal.routes.ts
+│       └── talent.routes.ts
+│   └── docs/
+│   │   └── openapi.ts                     # Talent OpenAPI document
 ├── tests/
 │   ├── setup.ts                           # Test environment initializers
-│   └── company.test.ts                    # Consolidated test suite across all 5 phases (65 tests)
+│   ├── company.test.ts                    # Company service tests
+│   └── talent.test.ts                     # Talent profile tests
 ├── Dockerfile                             # Multi-stage non-root container build
 ├── tsconfig.json                          # Base TypeScript configuration
 ├── tsconfig.build.json                    # Production build configuration
@@ -74,7 +86,9 @@ profile-service/
 
 ## Getting Started
 
-The service automatically runs its database migrations before opening the HTTP listener. Ensure `DATABASE_URL` points to the intended database and that the database user can create the company schema.
+The service automatically runs both company and talent database migrations before opening the HTTP listener. Both features use the profile service's `DATABASE_URL`; ensure it points to the intended database and that the database user can create the required tables and indexes. The migration creates the talent schema but does not copy rows from a separate talent-service database. If the old service used another database, export/import its data before switching to the combined service.
+
+The gateway's unified Swagger UI is available at `http://localhost:3000/docs`. Profile-service also serves its talent OpenAPI document at `/openapi.json` and Swagger UI at `/docs` when accessed directly.
 
 ### 1. Environment Configuration
 
@@ -91,7 +105,7 @@ PORT=3004
 DATABASE_URL=postgresql://user:password@host:5432/internflare
 DATABASE_SSL=false
 AUTH_SERVICE_URL=http://localhost:3001
-CORS_ORIGIN=*
+CORS_ORIGINS=http://localhost:5173,http://localhost:3000
 INTERNAL_SERVICE_SECRET=your-internal-shared-secret-at-least-32-chars
 ```
 
@@ -127,7 +141,7 @@ The service will start on `http://localhost:3004`.
 npm test
 ```
 
-Executes all 65 automated tests across 5 phase test suites.
+Runs the company and talent profile test suites.
 
 ### Type Check & Build
 

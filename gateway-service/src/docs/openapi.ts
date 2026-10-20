@@ -17,6 +17,10 @@ export const openApiDocument = {
       name: "Companies",
       description: "Company profiles, membership, and verification",
     },
+    {
+      name: "Talent Profiles",
+      description: "Talent profiles, completeness, and candidate discovery",
+    },
     { name: "Administration", description: "Platform administrator endpoints" },
     {
       name: "Internal",
@@ -450,6 +454,164 @@ export const openApiDocument = {
         },
       },
     },
+    "/api/v1/talent/profile": {
+      post: {
+        tags: ["Talent Profiles"],
+        summary: "Create or upsert the current user's talent profile",
+        description:
+          "Forwarded to profile-service. The profile completeness score is recalculated.",
+        security: [{ sessionCookie: [] }],
+        requestBody: {
+          required: true,
+          content: {
+            "application/json": {
+              schema: { $ref: "#/components/schemas/TalentProfileInput" },
+            },
+          },
+        },
+        responses: {
+          "200": {
+            description: "Talent profile saved with completeness details",
+            content: {
+              "application/json": {
+                schema: { $ref: "#/components/schemas/ProfileWithCompletenessResponse" },
+              },
+            },
+          },
+          "400": { description: "Profile payload failed validation" },
+          "401": { description: "Authentication is required" },
+          "502": { description: "Profile service is unavailable" },
+        },
+      },
+    },
+    "/api/v1/talent/profile/me": {
+      get: {
+        tags: ["Talent Profiles"],
+        summary: "Get the current user's talent profile",
+        security: [{ sessionCookie: [] }],
+        responses: {
+          "200": {
+            description: "Talent profile and completeness details",
+            content: {
+              "application/json": {
+                schema: { $ref: "#/components/schemas/ProfileWithCompletenessResponse" },
+              },
+            },
+          },
+          "401": { description: "Authentication is required" },
+          "404": {
+            description: "Profile has not been created; includes completeness recommendations",
+            content: {
+              "application/json": {
+                schema: { $ref: "#/components/schemas/NotFoundWithCompletenessResponse" },
+              },
+            },
+          },
+          "502": { description: "Profile service is unavailable" },
+        },
+      },
+      patch: {
+        tags: ["Talent Profiles"],
+        summary: "Partially update the current user's talent profile",
+        security: [{ sessionCookie: [] }],
+        requestBody: {
+          required: true,
+          content: {
+            "application/json": {
+              schema: { $ref: "#/components/schemas/UpdateTalentProfileInput" },
+            },
+          },
+        },
+        responses: {
+          "200": {
+            description: "Talent profile updated with recalculated completeness",
+            content: {
+              "application/json": {
+                schema: { $ref: "#/components/schemas/ProfileWithCompletenessResponse" },
+              },
+            },
+          },
+          "400": { description: "Profile payload failed validation" },
+          "401": { description: "Authentication is required" },
+          "502": { description: "Profile service is unavailable" },
+        },
+      },
+    },
+    "/api/v1/talent/profile/{id}": {
+      parameters: [
+        {
+          name: "id",
+          in: "path",
+          required: true,
+          description: "Talent profile UUID",
+          schema: { type: "string", format: "uuid" },
+        },
+      ],
+      get: {
+        tags: ["Talent Profiles"],
+        summary: "Get a public talent profile by ID",
+        responses: {
+          "200": {
+            description: "Public talent profile",
+            content: {
+              "application/json": {
+                schema: { $ref: "#/components/schemas/SingleTalentProfileResponse" },
+              },
+            },
+          },
+          "404": { description: "Talent profile not found" },
+          "502": { description: "Profile service is unavailable" },
+        },
+      },
+    },
+    "/api/v1/talent/profiles": {
+      get: {
+        tags: ["Talent Profiles"],
+        summary: "Search the public talent directory",
+        parameters: [
+          {
+            name: "skills",
+            in: "query",
+            description: "One skill or comma-separated skills",
+            schema: { type: "string" },
+          },
+          { name: "country", in: "query", schema: { type: "string" } },
+          { name: "availability", in: "query", schema: { type: "string" } },
+          {
+            name: "work_arrangement_pref",
+            in: "query",
+            schema: { type: "string", enum: ["remote", "hybrid", "onsite", "any"] },
+          },
+          {
+            name: "min_completeness",
+            in: "query",
+            schema: { type: "integer", minimum: 0, maximum: 100 },
+          },
+          {
+            name: "limit",
+            in: "query",
+            schema: { type: "integer", minimum: 1, maximum: 100, default: 20 },
+          },
+          {
+            name: "offset",
+            in: "query",
+            schema: { type: "integer", minimum: 0, default: 0 },
+          },
+        ],
+        responses: {
+          "200": {
+            description: "Matching talent profiles and pagination metadata",
+            content: {
+              "application/json": {
+                schema: { $ref: "#/components/schemas/TalentListResponse" },
+              },
+            },
+          },
+          "400": { description: "Invalid query parameters" },
+          "502": { description: "Profile service is unavailable" },
+        },
+      },
+    },
     "/api/v1/opportunities": {
       get: {
         tags: ["Opportunities"],
@@ -750,6 +912,184 @@ export const openApiDocument = {
         properties: {
           status: { type: "string", enum: ["APPROVED", "REJECTED"] },
           review_notes: { type: ["string", "null"], maxLength: 2000 },
+        },
+      },
+      TalentProfileInput: {
+        type: "object",
+        properties: {
+          full_name: { type: ["string", "null"], maxLength: 255 },
+          phone: { type: ["string", "null"], maxLength: 50 },
+          country: { type: ["string", "null"], maxLength: 100 },
+          location: { type: ["string", "null"], maxLength: 255 },
+          headline: { type: ["string", "null"], maxLength: 255 },
+          education: {
+            type: "array",
+            items: { $ref: "#/components/schemas/TalentEducationItem" },
+          },
+          experience: {
+            type: "array",
+            items: { $ref: "#/components/schemas/TalentExperienceItem" },
+          },
+          skills: { type: "array", items: { type: "string", minLength: 1 } },
+          preferred_roles: {
+            type: "array",
+            items: { type: "string", minLength: 1 },
+          },
+          availability: { type: ["string", "null"], maxLength: 50 },
+          work_arrangement_pref: {
+            type: ["string", "null"],
+            maxLength: 50,
+          },
+          career_goals: { type: ["string", "null"], maxLength: 5000 },
+          cv_url: { type: ["string", "null"], maxLength: 1024 },
+        },
+      },
+      UpdateTalentProfileInput: {
+        allOf: [{ $ref: "#/components/schemas/TalentProfileInput" }],
+        description: "Any subset of the talent profile properties.",
+      },
+      TalentEducationItem: {
+        type: "object",
+        required: ["institution", "degree"],
+        properties: {
+          institution: { type: "string", minLength: 1 },
+          degree: { type: "string", minLength: 1 },
+          field_of_study: { type: "string" },
+          start_year: { type: "integer", minimum: 1950, maximum: 2100 },
+          end_year: {
+            type: ["integer", "null"],
+            minimum: 1950,
+            maximum: 2100,
+          },
+        },
+      },
+      TalentExperienceItem: {
+        type: "object",
+        required: ["company", "title"],
+        properties: {
+          company: { type: "string", minLength: 1 },
+          title: { type: "string", minLength: 1 },
+          location: { type: "string" },
+          start_date: { type: "string" },
+          end_date: { type: ["string", "null"] },
+          current: { type: "boolean" },
+          description: { type: "string" },
+        },
+      },
+      TalentProfile: {
+        allOf: [
+          { $ref: "#/components/schemas/TalentProfileInput" },
+          {
+            type: "object",
+            required: [
+              "id",
+              "user_id",
+              "profile_completeness",
+              "readiness_score",
+              "created_at",
+              "updated_at",
+            ],
+            properties: {
+              id: { type: "string", format: "uuid" },
+              user_id: { type: "string" },
+              profile_completeness: { type: "integer", minimum: 0, maximum: 100 },
+              readiness_score: { type: "integer" },
+              created_at: { type: "string", format: "date-time" },
+              updated_at: { type: "string", format: "date-time" },
+            },
+          },
+        ],
+      },
+      CompletenessCalculation: {
+        type: "object",
+        required: ["score", "missing_fields", "next_prompt", "breakdown"],
+        properties: {
+          score: { type: "integer", minimum: 0, maximum: 100 },
+          missing_fields: {
+            type: "array",
+            items: {
+              type: "object",
+              required: ["field", "label", "weight"],
+              properties: {
+                field: { type: "string" },
+                label: { type: "string" },
+                weight: { type: "integer" },
+              },
+            },
+          },
+          next_prompt: { type: ["string", "null"] },
+          breakdown: {
+            type: "object",
+            properties: {
+              basic_info: { type: "integer" },
+              contact_location: { type: "integer" },
+              skills: { type: "integer" },
+              preferred_roles: { type: "integer" },
+              education: { type: "integer" },
+              experience: { type: "integer" },
+              preferences_goals: { type: "integer" },
+              cv_url: { type: "integer" },
+            },
+          },
+        },
+      },
+      ProfileWithCompletenessResponse: {
+        type: "object",
+        required: ["success", "data"],
+        properties: {
+          success: { type: "boolean", const: true },
+          data: {
+            type: "object",
+            required: ["profile", "completeness"],
+            properties: {
+              profile: { $ref: "#/components/schemas/TalentProfile" },
+              completeness: { $ref: "#/components/schemas/CompletenessCalculation" },
+            },
+          },
+        },
+      },
+      NotFoundWithCompletenessResponse: {
+        type: "object",
+        required: ["success", "error", "completeness"],
+        properties: {
+          success: { type: "boolean", const: false },
+          error: { type: "string" },
+          message: { type: "string" },
+          completeness: { $ref: "#/components/schemas/CompletenessCalculation" },
+        },
+      },
+      SingleTalentProfileResponse: {
+        type: "object",
+        required: ["success", "data"],
+        properties: {
+          success: { type: "boolean", const: true },
+          data: {
+            type: "object",
+            required: ["profile"],
+            properties: {
+              profile: { $ref: "#/components/schemas/TalentProfile" },
+            },
+          },
+        },
+      },
+      TalentListResponse: {
+        type: "object",
+        required: ["success", "data", "pagination"],
+        properties: {
+          success: { type: "boolean", const: true },
+          data: {
+            type: "array",
+            items: { $ref: "#/components/schemas/TalentProfile" },
+          },
+          pagination: {
+            type: "object",
+            required: ["total", "limit", "offset"],
+            properties: {
+              total: { type: "integer" },
+              limit: { type: "integer" },
+              offset: { type: "integer" },
+            },
+          },
         },
       },
       CreateOpportunityRequest: {

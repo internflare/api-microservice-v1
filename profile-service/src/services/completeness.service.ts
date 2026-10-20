@@ -5,7 +5,7 @@ import type {
 } from "../types/talent.types.js";
 
 /**
- * Pure calculation engine for Talent Profile Completeness (0-100%)
+ * Pure calculation engine for talent profile completeness (0-100%).
  * Conforms to US-01, PRD §4.1:
  * - Basic Info (Full Name, Headline) -> 15%
  * - Contact & Location (Phone, Country, Location) -> 15%

@@ -12,7 +12,11 @@ export class TalentController {
    * POST /api/v1/talent/profile
    * Create or initialize a talent profile
    */
-  static async upsertMyProfile(req: Request, res: Response, next: NextFunction): Promise<void> {
+  static async upsertMyProfile(
+    req: Request,
+    res: Response,
+    next: NextFunction,
+  ): Promise<void> {
     try {
       const userId = req.user?.id;
       if (!userId) {
@@ -49,7 +53,11 @@ export class TalentController {
    * GET /api/v1/talent/profile/me
    * Retrieve the current authenticated user's talent profile with completeness calculation
    */
-  static async getMyProfile(req: Request, res: Response, next: NextFunction): Promise<void> {
+  static async getMyProfile(
+    req: Request,
+    res: Response,
+    next: NextFunction,
+  ): Promise<void> {
     try {
       const userId = req.user?.id;
       if (!userId) {
@@ -86,7 +94,11 @@ export class TalentController {
    * PATCH /api/v1/talent/profile/me
    * Partially update talent profile and recalculate completeness
    */
-  static async updateMyProfile(req: Request, res: Response, next: NextFunction): Promise<void> {
+  static async updateMyProfile(
+    req: Request,
+    res: Response,
+    next: NextFunction,
+  ): Promise<void> {
     try {
       const userId = req.user?.id;
       if (!userId) {
@@ -104,7 +116,10 @@ export class TalentController {
         return;
       }
 
-      const updatedProfile = await TalentModel.updateProfile(userId, parseResult.data);
+      const updatedProfile = await TalentModel.updateProfile(
+        userId,
+        parseResult.data,
+      );
       const completeness = calculateProfileCompleteness(updatedProfile);
 
       res.status(200).json({
@@ -123,7 +138,11 @@ export class TalentController {
    * GET /api/v1/talent/profile/:id
    * Public profile view (by profile UUID)
    */
-  static async getProfileById(req: Request, res: Response, next: NextFunction): Promise<void> {
+  static async getProfileById(
+    req: Request,
+    res: Response,
+    next: NextFunction,
+  ): Promise<void> {
     try {
       const { id } = req.params;
       const profile = await TalentModel.findById(id);
@@ -152,7 +171,11 @@ export class TalentController {
    * GET /api/v1/talent/profiles
    * Recruiter / Public talent directory search
    */
-  static async searchProfiles(req: Request, res: Response, next: NextFunction): Promise<void> {
+  static async searchProfiles(
+    req: Request,
+    res: Response,
+    next: NextFunction,
+  ): Promise<void> {
     try {
       const parseResult = TalentSearchQuerySchema.safeParse(req.query);
       if (!parseResult.success) {
@@ -168,7 +191,10 @@ export class TalentController {
       const skillsArray = query.skills
         ? Array.isArray(query.skills)
           ? query.skills
-          : query.skills.split(",").map((s) => s.trim()).filter(Boolean)
+          : query.skills
+              .split(",")
+              .map((s) => s.trim())
+              .filter(Boolean)
         : undefined;
 
       const result = await TalentModel.searchTalents({

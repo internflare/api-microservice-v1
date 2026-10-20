@@ -10,6 +10,7 @@ import express from "express";
 import swaggerUi from "swagger-ui-express";
 import { config } from "./config.js";
 import { openApiDocument } from "./docs/openapi.js";
+import { AppError } from "./utils/appError.js";
 
 const documentationApp = express();
 const apiVersion = "/api/v1";
@@ -108,7 +109,7 @@ function getTarget(pathname: string): URL {
     pathname === "/api/talent" ||
     pathname.startsWith("/api/talent/")
   ) {
-    return config.talentServiceUrl;
+    return config.profileServiceUrl;
   }
 
   return config.authServiceUrl;
@@ -117,6 +118,7 @@ function getTarget(pathname: string): URL {
 // Send a 502 Bad Gateway response to the client when an upstream service is unavailable.
 function sendBadGateway(response: ServerResponse, error: Error): void {
   console.error("Gateway failed to reach an upstream service:", error);
+  const appError = new AppError("Upstream service unavailable", 502);
 
   if (response.destroyed || response.writableEnded) return;
   if (response.headersSent) {
@@ -124,8 +126,10 @@ function sendBadGateway(response: ServerResponse, error: Error): void {
     return;
   }
 
-  response.writeHead(502, { "content-type": "application/json" });
-  response.end(JSON.stringify({ error: "Upstream service unavailable" }));
+  response.writeHead(appError.statusCode, {
+    "content-type": "application/json",
+  });
+  response.end(JSON.stringify({ error: appError.message }));
 }
 
 async function logUpstreamServiceStatuses(): Promise<void> {
@@ -169,8 +173,11 @@ const server = createServer((incoming, outgoing) => {
     requestUrl = new URL(incoming.url ?? "/", "http://gateway.local");
   } catch (error) {
     console.warn("Rejected malformed gateway request URL:", error);
-    outgoing.writeHead(400, { "content-type": "application/json" });
-    outgoing.end(JSON.stringify({ error: "Invalid request URL" }));
+    const appError = new AppError("Invalid request URL", 400);
+    outgoing.writeHead(appError.statusCode, {
+      "content-type": "application/json",
+    });
+    outgoing.end(JSON.stringify({ error: appError.message }));
     return;
   }
 

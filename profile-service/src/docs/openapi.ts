@@ -1,12 +1,12 @@
 export const openApiDocument = {
   openapi: "3.1.0",
   info: {
-    title: "Internflare Talent Service API",
+    title: "Internflare Talent Profile API",
     version: "1.0.0",
     description:
-      "Autonomous microservice for Talent Profile CRUD, Completeness Scoring Engine, and Candidate Discovery (PRD §4.1 / US-01).",
+      "Talent profile CRUD, completeness scoring, and candidate discovery, hosted by profile-service (PRD §4.1 / US-01).",
   },
-  servers: [{ url: "/", description: "Current talent-service origin" }],
+  servers: [{ url: "/", description: "Current profile-service origin" }],
   tags: [
     { name: "Talent Profile", description: "Talent profile creation, retrieval, and updating" },
     { name: "Talent Discovery", description: "Public and recruiter candidate search" },
@@ -293,7 +293,7 @@ export const openApiDocument = {
         type: "object",
         properties: {
           status: { type: "string", example: "ok" },
-          service: { type: "string", example: "talent-service" },
+          service: { type: "string", example: "profile-service" },
           timestamp: { type: "string", format: "date-time" },
         },
         required: ["status", "service", "timestamp"],
@@ -521,4 +521,3 @@ export const openApiDocument = {
     },
   },
 } as const;
-

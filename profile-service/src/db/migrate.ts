@@ -55,8 +55,12 @@ export async function runMigrations(): Promise<void> {
     await client.query("COMMIT");
     console.log("[migrate] All migrations completed successfully.");
   } catch (error) {
-    await client.query("ROLLBACK");
-    console.error("[migrate] Migration failed, transaction rolled back", error);
+    try {
+      await client.query("ROLLBACK");
+    } catch (rollbackError) {
+      console.error("[migrate] Failed to roll back migration:", rollbackError);
+    }
+    console.error("[migrate] Migration failed; rollback was attempted", error);
     throw error;
   } finally {
     client.release();

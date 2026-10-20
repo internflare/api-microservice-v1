@@ -7,6 +7,7 @@ import {
 } from "../services/email-notification.service.js";
 import { createNotification } from "../models/notification.model.js";
 import { logger } from "../utils/logger.js";
+import { AppError } from "../utils/appError.js";
 
 const actionSchema = z.object({
   label: z.string().trim().min(1).max(80),
@@ -26,7 +27,7 @@ const notificationSchema = z.object({
 });
 
 // Validate request data before sending and persist the matching user notification.
-const sendEmail: RequestHandler = async (request, response) => {
+const sendEmail: RequestHandler = async (request, response, next) => {
   const parsed = notificationSchema.safeParse(request.body);
   if (!parsed.success) {
     response.status(400).json({
@@ -54,9 +55,12 @@ const sendEmail: RequestHandler = async (request, response) => {
         tags: { operation: "persist-email-notification" },
       });
       logger("error", "Email was sent but notification persistence failed:", error);
-      response
-        .status(500)
-        .json({ error: "Email was sent but notification could not be saved" });
+      next(
+        new AppError(
+          "Email was sent but notification could not be saved",
+          500,
+        ),
+      );
       return;
     }
     response.status(202).json({
@@ -69,9 +73,7 @@ const sendEmail: RequestHandler = async (request, response) => {
       tags: { operation: "send-email-notification" },
     });
     logger("error", "Email delivery failed:", error);
-    response
-      .status(502)
-      .json({ error: "Email provider failed to send notification" });
+    next(new AppError("Email provider failed to send notification", 502));
   }
 };
 

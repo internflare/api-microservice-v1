@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import pg from "../../node_modules/@types/pg/index.js";
+import pg from "pg";
 import { config } from "../config.js";
 
 const { Pool } = pg;

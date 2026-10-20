@@ -55,7 +55,7 @@ export class TalentModel {
     userId: string,
     data: TalentProfileInput,
   ): Promise<TalentProfile> {
-    // 1. Calculate completeness score
+    // Calculate completeness before persisting the profile.
     const completeness = calculateProfileCompleteness(data);
 
     const query = `

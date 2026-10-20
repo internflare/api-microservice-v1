@@ -18,7 +18,7 @@ import {
   ExperienceItemSchema,
 } from "../src/validators/talent.validator.js";
 
-// Unified mock helper for Express req, res, next
+// Express request/response test helper.
 function createMockHttp(options: {
   headers?: Record<string, string>;
   params?: Record<string, string>;
@@ -557,4 +557,3 @@ test("Suite 6: OpenAPI & Swagger Documentation", async (t) => {
     assert.ok(openApiDocument.components.schemas.CompletenessCalculation);
   });
 });
-

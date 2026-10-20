@@ -28,6 +28,8 @@ import {
 } from "../src/middleware/company-auth.js";
 import { requireInternalServiceAuth } from "../src/middleware/internal-auth.js";
 import { CompanyModel } from "../src/models/company.model.js";
+import { errorHandler } from "../src/middleware/error-handler.js";
+import { AppError } from "../src/utils/appError.js";
 import type {
   Company,
   CompanyMember,
@@ -91,6 +93,17 @@ function createMockHttp(options: {
     wasNextCalled: () => nextCalled,
     getNextError: () => nextError,
   };
+}
+
+function passErrorToHandler(
+  context: ReturnType<typeof createMockHttp>,
+): void {
+  errorHandler(
+    context.getNextError(),
+    context.req,
+    context.res,
+    context.next,
+  );
 }
 
 // ============================================================================
@@ -598,20 +611,23 @@ test("Suite 3: Member Management Operations", async (t) => {
   await t.test("inviteCompanyMember returns 409 Conflict when user already has active/pending membership", async () => {
     const originalInvite = CompanyModel.inviteMember;
     CompanyModel.inviteMember = async () => {
-      throw new Error("User is already an active member of this company");
+      throw new AppError(
+        "User is already an active member of this company",
+        409,
+      );
     };
 
-    const { req, res, next, getStatusCode, getResponseData } = createMockHttp({
+    const context = createMockHttp({
       user: { id: "usr-admin-1" },
       params: { id: companyId },
       body: { user_id: "usr-intern-1", workspace_role: "MEMBER" },
     });
 
-    await (inviteCompanyMember as any)(req, res, next);
+    await (inviteCompanyMember as any)(context.req, context.res, context.next);
+    passErrorToHandler(context);
 
-    assert.equal(getStatusCode(), 409);
-    assert.equal(getResponseData().error, "Conflict");
-    assert.match(getResponseData().message, /already an active member/);
+    assert.equal(context.getStatusCode(), 409);
+    assert.match(context.getResponseData().error, /already an active member/);
 
     CompanyModel.inviteMember = originalInvite;
   });
@@ -702,19 +718,25 @@ test("Suite 3: Member Management Operations", async (t) => {
   await t.test("removeCompanyMember blocks removal of the sole active administrator with 400", async () => {
     const originalSoftRemove = CompanyModel.softRemoveMember;
     CompanyModel.softRemoveMember = async () => {
-      throw new Error("Cannot remove the sole active administrator of a company");
+      throw new AppError(
+        "Cannot remove the sole active administrator of a company",
+        400,
+      );
     };
 
-    const { req, res, next, getStatusCode, getResponseData } = createMockHttp({
+    const context = createMockHttp({
       user: { id: "usr-admin-1" },
       params: { id: companyId, memberId: "sole-admin-id" },
     });
 
-    await (removeCompanyMember as any)(req, res, next);
+    await (removeCompanyMember as any)(context.req, context.res, context.next);
+    passErrorToHandler(context);
 
-    assert.equal(getStatusCode(), 400);
-    assert.equal(getResponseData().error, "Bad Request");
-    assert.match(getResponseData().message, /Cannot remove the sole active administrator/);
+    assert.equal(context.getStatusCode(), 400);
+    assert.match(
+      context.getResponseData().error,
+      /Cannot remove the sole active administrator/,
+    );
 
     CompanyModel.softRemoveMember = originalSoftRemove;
   });
@@ -786,10 +808,10 @@ test("Suite 4: Verification Submission Workflow (Employer)", async (t) => {
   await t.test("submitCompanyVerification returns 404 if company does not exist", async () => {
     const originalSubmit = CompanyModel.submitVerification;
     CompanyModel.submitVerification = async () => {
-      throw new Error("Company not found");
+      throw new AppError("Company not found", 404);
     };
 
-    const { req, res, next, getStatusCode, getResponseData } = createMockHttp({
+    const context = createMockHttp({
       user: { id: "usr-founder-1" },
       params: { id: "missing-company-id" },
       body: {
@@ -797,10 +819,15 @@ test("Suite 4: Verification Submission Workflow (Employer)", async (t) => {
       },
     });
 
-    await (submitCompanyVerification as any)(req, res, next);
+    await (submitCompanyVerification as any)(
+      context.req,
+      context.res,
+      context.next,
+    );
+    passErrorToHandler(context);
 
-    assert.equal(getStatusCode(), 404);
-    assert.equal(getResponseData().error, "Not Found");
+    assert.equal(context.getStatusCode(), 404);
+    assert.equal(context.getResponseData().error, "Company not found");
 
     CompanyModel.submitVerification = originalSubmit;
   });
@@ -924,19 +951,27 @@ test("Suite 4: Admin Review Decisions & Audit Event Logging", async (t) => {
   await t.test("decideVerification returns 404 when verification does not exist", async () => {
     const originalDecide = CompanyModel.decideVerification;
     CompanyModel.decideVerification = async () => {
-      throw new Error("Verification record not found");
+      throw new AppError("Verification record not found", 404);
     };
 
-    const { req, res, next, getStatusCode, getResponseData } = createMockHttp({
+    const context = createMockHttp({
       user: { id: "usr-platform-admin", role: "ADMIN" },
       params: { id: "non-existent-id" },
       body: { status: "REJECTED" },
     });
 
-    await (decideVerification as any)(req, res, next);
+    await (decideVerification as any)(
+      context.req,
+      context.res,
+      context.next,
+    );
+    passErrorToHandler(context);
 
-    assert.equal(getStatusCode(), 404);
-    assert.equal(getResponseData().error, "Not Found");
+    assert.equal(context.getStatusCode(), 404);
+    assert.equal(
+      context.getResponseData().error,
+      "Verification record not found",
+    );
 
     CompanyModel.decideVerification = originalDecide;
   });
@@ -944,20 +979,27 @@ test("Suite 4: Admin Review Decisions & Audit Event Logging", async (t) => {
   await t.test("decideVerification returns 409 Conflict when verification was already decided", async () => {
     const originalDecide = CompanyModel.decideVerification;
     CompanyModel.decideVerification = async () => {
-      throw new Error("Verification has already been decided: current status is APPROVED");
+      throw new AppError(
+        "Verification has already been decided: current status is APPROVED",
+        409,
+      );
     };
 
-    const { req, res, next, getStatusCode, getResponseData } = createMockHttp({
+    const context = createMockHttp({
       user: { id: "usr-platform-admin", role: "ADMIN" },
       params: { id: verificationId },
       body: { status: "REJECTED" },
     });
 
-    await (decideVerification as any)(req, res, next);
+    await (decideVerification as any)(
+      context.req,
+      context.res,
+      context.next,
+    );
+    passErrorToHandler(context);
 
-    assert.equal(getStatusCode(), 409);
-    assert.equal(getResponseData().error, "Conflict");
-    assert.match(getResponseData().message, /already been decided/);
+    assert.equal(context.getStatusCode(), 409);
+    assert.match(context.getResponseData().error, /already been decided/);
 
     CompanyModel.decideVerification = originalDecide;
   });

@@ -31,6 +31,7 @@ export const requireAuth: RequestHandler = async (req, res, next) => {
     // Reject immediately if neither session cookie nor authorization header is present
     if (!req.headers.cookie && !req.headers.authorization) {
       res.status(401).json({
+        success: false,
         error: "Unauthorized",
         message: "Authentication is required to access this resource",
       });
@@ -51,6 +52,7 @@ export const requireAuth: RequestHandler = async (req, res, next) => {
 
       if (!authRes.ok) {
         res.status(401).json({
+          success: false,
           error: "Unauthorized",
           message: "Authentication is required to access this resource",
         });
@@ -60,6 +62,7 @@ export const requireAuth: RequestHandler = async (req, res, next) => {
       const session = (await authRes.json()) as { user?: AuthenticatedUser };
       if (!session || !session.user) {
         res.status(401).json({
+          success: false,
           error: "Unauthorized",
           message: "Authentication is required to access this resource",
         });
@@ -74,6 +77,7 @@ export const requireAuth: RequestHandler = async (req, res, next) => {
         fetchError,
       );
       res.status(503).json({
+        success: false,
         error: "Service Unavailable",
         message: "Authentication verification service temporarily unavailable",
       });

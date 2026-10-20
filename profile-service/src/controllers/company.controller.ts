@@ -125,14 +125,7 @@ export const inviteCompanyMember: RequestHandler = async (req, res, next) => {
       message: "Member invited successfully",
       member,
     });
-  } catch (error: any) {
-    if (
-      error.message?.includes("already an active member") ||
-      error.message?.includes("pending invitation")
-    ) {
-      res.status(409).json({ error: "Conflict", message: error.message });
-      return;
-    }
+  } catch (error) {
     next(error);
   }
 };
@@ -218,13 +211,7 @@ export const removeCompanyMember: RequestHandler = async (req, res, next) => {
       message: "Member access revoked successfully without deleting records",
       member,
     });
-  } catch (error: any) {
-    if (
-      error.message?.includes("Cannot remove the sole active administrator")
-    ) {
-      res.status(400).json({ error: "Bad Request", message: error.message });
-      return;
-    }
+  } catch (error) {
     next(error);
   }
 };
@@ -258,11 +245,7 @@ export const submitCompanyVerification: RequestHandler = async (
       message: "Verification documents submitted successfully",
       verification,
     });
-  } catch (error: any) {
-    if (error.message?.includes("Company not found")) {
-      res.status(404).json({ error: "Not Found", message: error.message });
-      return;
-    }
+  } catch (error) {
     next(error);
   }
 };

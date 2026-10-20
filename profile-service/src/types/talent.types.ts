@@ -16,8 +16,8 @@ export interface ExperienceItem {
   description?: string;
 }
 
-export type AvailabilityOption = "immediate" | "2_weeks" | "1_month" | "date" | string;
-export type WorkArrangementOption = "remote" | "hybrid" | "onsite" | "any" | string;
+export type AvailabilityOption = string;
+export type WorkArrangementOption = string;
 
 export interface TalentProfile {
   id: string;

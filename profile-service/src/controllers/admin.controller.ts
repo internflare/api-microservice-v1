@@ -51,15 +51,7 @@ export const decideVerification: RequestHandler = async (req, res, next) => {
       verification: result.verification,
       company: result.company,
     });
-  } catch (error: any) {
-    if (error.message?.includes("not found")) {
-      res.status(404).json({ error: "Not Found", message: error.message });
-      return;
-    }
-    if (error.message?.includes("already been decided")) {
-      res.status(409).json({ error: "Conflict", message: error.message });
-      return;
-    }
+  } catch (error) {
     next(error);
   }
 };

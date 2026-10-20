@@ -11,6 +11,7 @@ import {
   publishJobApplication,
   publishJobCreated,
 } from "../services/notification-publisher.service.js";
+import { AppError } from "../utils/appError.js";
 import { logger } from "../utils/logger.js";
 
 const recipientSchema = z.object({
@@ -98,7 +99,11 @@ const applicationSchema = z.object({
 });
 
 // Handler for creating a new opportunity
-const createOpportunityHandler: RequestHandler = async (request, response) => {
+const createOpportunityHandler: RequestHandler = async (
+  request,
+  response,
+  next,
+) => {
   const parsed = createOpportunitySchema.safeParse(request.body);
   if (!parsed.success) {
     response.status(400).json({
@@ -118,7 +123,7 @@ const createOpportunityHandler: RequestHandler = async (request, response) => {
     });
   } catch (error) {
     logger("error", "Failed to create opportunity:", error);
-    response.status(500).json({ error: "Could not create opportunity" });
+    next(new AppError("Could not create opportunity", 500));
     return;
   }
 
@@ -146,7 +151,11 @@ const createOpportunityHandler: RequestHandler = async (request, response) => {
 };
 
 // Handler for listing opportunities with optional filters, pagination, and sorting
-const listOpportunitiesHandler: RequestHandler = async (request, response) => {
+const listOpportunitiesHandler: RequestHandler = async (
+  request,
+  response,
+  next,
+) => {
   // Parse and validate query parameters for pagination, sorting, and filtering
   const parsed = OpportunityQuery.fromUrlParameters(request.query);
 
@@ -171,12 +180,16 @@ const listOpportunitiesHandler: RequestHandler = async (request, response) => {
     });
   } catch (error) {
     logger("error", "Failed to list opportunities:", error);
-    response.status(500).json({ error: "Could not list opportunities" });
+    next(new AppError("Could not list opportunities", 500));
   }
 };
 
 // Handler for retrieving a specific opportunity by its ID
-const getOpportunityHandler: RequestHandler = async (request, response) => {
+const getOpportunityHandler: RequestHandler = async (
+  request,
+  response,
+  next,
+) => {
   const parsedId = z.uuid().safeParse(request.params.id);
   if (!parsedId.success) {
     response.status(400).json({ error: "Opportunity id must be a UUID" });
@@ -192,7 +205,7 @@ const getOpportunityHandler: RequestHandler = async (request, response) => {
     response.json({ opportunity });
   } catch (error) {
     logger("error", "Failed to get opportunity:", error);
-    response.status(500).json({ error: "Could not get opportunity" });
+    next(new AppError("Could not get opportunity", 500));
   }
 };
 
@@ -200,6 +213,7 @@ const getOpportunityHandler: RequestHandler = async (request, response) => {
 const notifyCompanyOfApplicationHandler: RequestHandler = async (
   request,
   response,
+  next,
 ) => {
   const parsedId = z.uuid().safeParse(request.params.id);
   const parsedBody = applicationSchema.safeParse(request.body);
@@ -238,9 +252,7 @@ const notifyCompanyOfApplicationHandler: RequestHandler = async (
     });
   } catch (error) {
     logger("error", "Failed to queue application notification:", error);
-    response
-      .status(503)
-      .json({ error: "Could not queue application notification" });
+    next(new AppError("Could not queue application notification", 503));
   }
 };
 

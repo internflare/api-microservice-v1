@@ -1,5 +1,6 @@
 import type { ErrorRequestHandler } from "express";
 import { logger } from "../utils/logger.js";
+import { AppError } from "../utils/appError.js";
 
 // Centralizes unexpected route failures without returning internal error details.
 export const errorHandler: ErrorRequestHandler = (
@@ -13,7 +14,9 @@ export const errorHandler: ErrorRequestHandler = (
     error instanceof Error
       ? { name: error.name, message: error.message }
       : { message: "Unknown request failure" };
-  logger("error", "Request failed:", safeError);
+  if (!(error instanceof AppError && error.statusCode < 500)) {
+    logger("error", "Request failed:", safeError);
+  }
 
   if (response.headersSent) {
     next(error);
@@ -31,6 +34,11 @@ export const errorHandler: ErrorRequestHandler = (
   }
   if (errorType === "entity.too.large") {
     response.status(413).json({ error: "Request body is too large" });
+    return;
+  }
+
+  if (error instanceof AppError && error.isOperational) {
+    response.status(error.statusCode).json({ error: error.message });
     return;
   }
 

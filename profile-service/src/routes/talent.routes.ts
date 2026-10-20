@@ -4,7 +4,7 @@ import { requireAuth } from "../middleware/auth.js";
 
 const router = Router();
 
-// Authenticated current talent routes
+// Authenticated current talent profile routes.
 router.post("/profile", requireAuth, TalentController.upsertMyProfile);
 router.get("/profile/me", requireAuth, TalentController.getMyProfile);
 router.patch("/profile/me", requireAuth, TalentController.updateMyProfile);

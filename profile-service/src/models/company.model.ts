@@ -1,4 +1,6 @@
+import type { PoolClient } from "pg";
 import { database } from "../db/pool.js";
+import { AppError } from "../utils/appError.js";
 import type {
   Company,
   CompanyMember,
@@ -11,6 +13,18 @@ import type {
   SubmitVerificationInput,
   UpdateCompanyInput,
 } from "../validators/company.validator.js";
+
+async function rollbackAndRethrow(
+  client: PoolClient,
+  error: unknown,
+): Promise<never> {
+  try {
+    await client.query("ROLLBACK");
+  } catch (rollbackError) {
+    console.error("Failed to roll back company transaction:", rollbackError);
+  }
+  throw error;
+}
 
 export class CompanyModel {
   /**
@@ -80,8 +94,7 @@ export class CompanyModel {
       await client.query("COMMIT");
       return { company, member };
     } catch (error) {
-      await client.query("ROLLBACK");
-      throw error;
+      return rollbackAndRethrow(client, error);
     } finally {
       client.release();
     }
@@ -174,8 +187,7 @@ export class CompanyModel {
       await client.query("COMMIT");
       return updated;
     } catch (error) {
-      await client.query("ROLLBACK");
-      throw error;
+      return rollbackAndRethrow(client, error);
     } finally {
       client.release();
     }
@@ -258,11 +270,15 @@ export class CompanyModel {
 
       if (existing) {
         if (existing.status === "ACTIVE") {
-          throw new Error("User is already an active member of this company");
+          throw new AppError(
+            "User is already an active member of this company",
+            409,
+          );
         }
         if (existing.status === "INVITED") {
-          throw new Error(
+          throw new AppError(
             "User already has a pending invitation to this company",
+            409,
           );
         }
 
@@ -313,8 +329,7 @@ export class CompanyModel {
       await client.query("COMMIT");
       return member;
     } catch (error) {
-      await client.query("ROLLBACK");
-      throw error;
+      return rollbackAndRethrow(client, error);
     } finally {
       client.release();
     }
@@ -364,8 +379,7 @@ export class CompanyModel {
       await client.query("COMMIT");
       return member;
     } catch (error) {
-      await client.query("ROLLBACK");
-      throw error;
+      return rollbackAndRethrow(client, error);
     } finally {
       client.release();
     }
@@ -387,8 +401,11 @@ export class CompanyModel {
       await client.query("BEGIN");
 
       // Verify member exists and is not already removed
+      await client.query("SELECT id FROM companies WHERE id = $1 FOR UPDATE", [
+        companyId,
+      ]);
       const { rows: memberRows } = await client.query<CompanyMember>(
-        "SELECT * FROM company_members WHERE company_id = $1 AND id = $2;",
+        "SELECT * FROM company_members WHERE company_id = $1 AND id = $2 FOR UPDATE;",
         [companyId, memberId],
       );
       const targetMember = memberRows[0];
@@ -414,8 +431,9 @@ export class CompanyModel {
         );
         const adminCount = Number.parseInt(adminCountRows[0].count, 10);
         if (adminCount <= 1) {
-          throw new Error(
+          throw new AppError(
             "Cannot remove the sole active administrator of a company",
+            400,
           );
         }
       }
@@ -451,8 +469,7 @@ export class CompanyModel {
       await client.query("COMMIT");
       return updatedMember;
     } catch (error) {
-      await client.query("ROLLBACK");
-      throw error;
+      return rollbackAndRethrow(client, error);
     } finally {
       client.release();
     }
@@ -479,7 +496,7 @@ export class CompanyModel {
       );
       const company = companyRows[0];
       if (!company) {
-        throw new Error("Company not found");
+        throw new AppError("Company not found", 404);
       }
 
       // 1. Insert verification submission
@@ -533,8 +550,7 @@ export class CompanyModel {
       await client.query("COMMIT");
       return verification;
     } catch (error) {
-      await client.query("ROLLBACK");
-      throw error;
+      return rollbackAndRethrow(client, error);
     } finally {
       client.release();
     }
@@ -640,12 +656,13 @@ export class CompanyModel {
       const targetVerification = vRows[0];
 
       if (!targetVerification) {
-        throw new Error("Verification record not found");
+        throw new AppError("Verification record not found", 404);
       }
 
       if (targetVerification.status !== "PENDING_REVIEW") {
-        throw new Error(
+        throw new AppError(
           `Verification has already been decided: current status is ${targetVerification.status}`,
+          409,
         );
       }
 
@@ -699,8 +716,7 @@ export class CompanyModel {
       await client.query("COMMIT");
       return { verification: updatedVerification, company: updatedCompany };
     } catch (error) {
-      await client.query("ROLLBACK");
-      throw error;
+      return rollbackAndRethrow(client, error);
     } finally {
       client.release();
     }

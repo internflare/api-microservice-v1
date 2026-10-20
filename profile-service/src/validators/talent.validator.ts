@@ -18,8 +18,18 @@ export const ExperienceItemSchema = z.object({
   description: z.string().trim().optional(),
 });
 
-export const AvailabilityEnum = z.enum(["immediate", "2_weeks", "1_month", "date"]);
-export const WorkArrangementEnum = z.enum(["remote", "hybrid", "onsite", "any"]);
+export const AvailabilityEnum = z.enum([
+  "immediate",
+  "2_weeks",
+  "1_month",
+  "date",
+]);
+export const WorkArrangementEnum = z.enum([
+  "remote",
+  "hybrid",
+  "onsite",
+  "any",
+]);
 
 export const CreateTalentProfileSchema = z.object({
   full_name: z.string().trim().max(255).optional().nullable(),

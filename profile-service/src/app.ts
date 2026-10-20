@@ -1,17 +1,18 @@
 import cors from "cors";
-import express, {
-  type Express,
-  type Request,
-  type Response,
-  type NextFunction,
-} from "express";
+import swaggerUi from "swagger-ui-express";
+import express, { type Express, type Request, type Response } from "express";
 import { config } from "./config.js";
 import { companyRoutes } from "./routes/company.routes.js";
 import { adminRoutes } from "./routes/admin.routes.js";
 import { internalRoutes } from "./routes/internal.routes.js";
+import { talentRoutes } from "./routes/talent.routes.js";
+import { openApiDocument } from "./docs/openapi.js";
+import { errorHandler } from "./middleware/error-handler.js";
+import { notFoundHandler } from "./middleware/not-found-handler.js";
 
 const app: Express = express();
 
+app.disable("x-powered-by");
 app.use(
   cors({
     origin: config.trustedOrigins,
@@ -20,6 +21,15 @@ app.use(
 );
 
 app.use(express.json());
+
+app.get("/openapi.json", (_req, res) => {
+  res.json(openApiDocument);
+});
+app.get("/api/v1/openapi.json", (_req, res) => {
+  res.json(openApiDocument);
+});
+app.use("/docs", swaggerUi.serve, swaggerUi.setup(openApiDocument));
+app.use("/api/v1/docs", swaggerUi.serve, swaggerUi.setup(openApiDocument));
 
 // Health Check Endpoints
 const healthHandler = (_req: Request, res: Response) => {
@@ -37,16 +47,11 @@ app.use("/profile", companyRoutes);
 app.use("/auth", companyRoutes);
 app.use("/admin", adminRoutes);
 app.use("/internal", internalRoutes);
+app.use("/talent", talentRoutes);
+app.use("/api/talent", talentRoutes);
+app.use("/api/v1/talent", talentRoutes);
 
-// Central error handler
-app.use((err: unknown, _req: Request, res: Response, _next: NextFunction) => {
-  console.error("[profile-service error]:", err);
-  const status =
-    typeof err === "object" && err !== null && "status" in err
-      ? (err as any).status
-      : 500;
-  const message = err instanceof Error ? err.message : "Internal Server Error";
-  res.status(status).json({ error: message });
-});
+app.use(notFoundHandler);
+app.use(errorHandler);
 
 export { app };
