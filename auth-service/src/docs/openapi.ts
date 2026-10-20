@@ -13,7 +13,7 @@ export const openApiDocument = {
     { name: "Health", description: "Service health" },
   ],
   paths: {
-    "/api/v1/health": {
+    "/health": {
       get: {
         tags: ["Health"],
         summary: "Check service health",
@@ -37,7 +37,7 @@ export const openApiDocument = {
         },
       },
     },
-    "/api/v1/me": {
+    "/me": {
       get: {
         tags: ["Sessions"],
         summary: "Get the current user and session",

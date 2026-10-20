@@ -9,15 +9,27 @@ export const createCompany: RequestHandler = async (req, res, next) => {
   try {
     const userId = req.user?.id;
     if (!userId) {
-      res.status(401).json({ error: "Unauthorized", message: "Authentication required" });
+      res
+        .status(401)
+        .json({ error: "Unauthorized", message: "Authentication required" });
       return;
     }
 
-    const { company, member } = await CompanyModel.createCompanyWithAdmin(
+    const newCompany = await CompanyModel.createCompanyWithAdmin(
       req.body,
       userId,
       req.ip,
     );
+
+    // If the company creation fails, respond with a 400 Bad Request
+    if (!newCompany) {
+      res
+        .status(400)
+        .json({ error: "Bad Request", message: "Failed to create company" });
+      return;
+    }
+
+    const { company, member } = newCompany;
 
     res.status(201).json({
       message: "Company created successfully",
@@ -38,7 +50,9 @@ export const getCompanyById: RequestHandler = async (req, res, next) => {
     const companyId = String(req.params.id);
     const company = await CompanyModel.findCompanyById(companyId);
     if (!company) {
-      res.status(404).json({ error: "Not Found", message: "Company not found" });
+      res
+        .status(404)
+        .json({ error: "Not Found", message: "Company not found" });
       return;
     }
 
@@ -69,7 +83,9 @@ export const updateCompany: RequestHandler = async (req, res, next) => {
     );
 
     if (!updated) {
-      res.status(404).json({ error: "Not Found", message: "Company not found" });
+      res
+        .status(404)
+        .json({ error: "Not Found", message: "Company not found" });
       return;
     }
 
@@ -139,7 +155,11 @@ export const listCompanyMembers: RequestHandler = async (req, res, next) => {
  * POST /api/companies/:id/members/accept
  * Allows the authenticated user to accept their pending company invitation.
  */
-export const acceptMembershipInvite: RequestHandler = async (req, res, next) => {
+export const acceptMembershipInvite: RequestHandler = async (
+  req,
+  res,
+  next,
+) => {
   try {
     const userId = req.user?.id;
     if (!userId) {
@@ -148,11 +168,7 @@ export const acceptMembershipInvite: RequestHandler = async (req, res, next) => 
     }
 
     const companyId = String(req.params.id);
-    const member = await CompanyModel.acceptInvite(
-      companyId,
-      userId,
-      req.ip,
-    );
+    const member = await CompanyModel.acceptInvite(companyId, userId, req.ip);
 
     if (!member) {
       res.status(404).json({
@@ -203,7 +219,9 @@ export const removeCompanyMember: RequestHandler = async (req, res, next) => {
       member,
     });
   } catch (error: any) {
-    if (error.message?.includes("Cannot remove the sole active administrator")) {
+    if (
+      error.message?.includes("Cannot remove the sole active administrator")
+    ) {
       res.status(400).json({ error: "Bad Request", message: error.message });
       return;
     }
@@ -216,7 +234,11 @@ export const removeCompanyMember: RequestHandler = async (req, res, next) => {
  * Submits company verification documents for administrative review (PRD §4.2).
  * Restricted to company ADMINs.
  */
-export const submitCompanyVerification: RequestHandler = async (req, res, next) => {
+export const submitCompanyVerification: RequestHandler = async (
+  req,
+  res,
+  next,
+) => {
   try {
     const actorId = req.user?.id;
     if (!actorId) {
@@ -249,10 +271,15 @@ export const submitCompanyVerification: RequestHandler = async (req, res, next) 
  * GET /api/companies/:id/verifications
  * Lists verification submission history for the company. Restricted to company members.
  */
-export const listCompanyVerifications: RequestHandler = async (req, res, next) => {
+export const listCompanyVerifications: RequestHandler = async (
+  req,
+  res,
+  next,
+) => {
   try {
     const companyId = String(req.params.id);
-    const verifications = await CompanyModel.listCompanyVerifications(companyId);
+    const verifications =
+      await CompanyModel.listCompanyVerifications(companyId);
     res.status(200).json({ verifications });
   } catch (error) {
     next(error);

@@ -12,7 +12,7 @@ export const openApiDocument = {
     { name: "Email notifications", description: "Transactional email delivery" },
   ],
   paths: {
-    "/api/v1/health": {
+    "/health": {
       get: {
         tags: ["Health"],
         summary: "Check service health",
@@ -36,7 +36,7 @@ export const openApiDocument = {
         },
       },
     },
-    "/api/v1/notifications/email": {
+    "/notifications/email": {
       post: {
         tags: ["Email notifications"],
         summary: "Send an email notification",

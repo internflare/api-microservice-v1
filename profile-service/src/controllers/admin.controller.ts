@@ -5,9 +5,20 @@ import { CompanyModel } from "../models/company.model.js";
  * GET /api/admin/verifications
  * Lists all pending verification requests across companies for platform administrators.
  */
-export const listPendingVerifications: RequestHandler = async (_req, res, next) => {
+export const listPendingVerifications: RequestHandler = async (
+  _req,
+  res,
+  next,
+) => {
   try {
     const pending = await CompanyModel.listPendingVerifications();
+
+    // If there are no pending verifications, return an empty array
+    if (!pending || pending.length === 0) {
+      res.status(200).json({ pending_verifications: [] });
+      return;
+    }
+
     res.status(200).json({ pending_verifications: pending });
   } catch (error) {
     next(error);
@@ -49,6 +60,26 @@ export const decideVerification: RequestHandler = async (req, res, next) => {
       res.status(409).json({ error: "Conflict", message: error.message });
       return;
     }
+    next(error);
+  }
+};
+
+// GET /api/admin/employer/dashboard
+export const getAdminDashboardMetrics: RequestHandler = async (
+  req,
+  res,
+  next,
+) => {
+  try {
+    const adminId = req.user?.id;
+    if (!adminId) {
+      res.status(401).json({ error: "Unauthorized" });
+      return;
+    }
+
+    const metrics = await CompanyModel.getAdminDashboardMetrics();
+    res.status(200).json({ metrics });
+  } catch (error) {
     next(error);
   }
 };

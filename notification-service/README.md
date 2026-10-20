@@ -45,10 +45,10 @@ For production, run `npm run build` followed by `npm start`. Deploy the `migrati
 
 ## API documentation
 
-- Interactive Swagger UI: `GET /api/v1/docs`
-- OpenAPI JSON: `GET /api/v1/openapi.json`
-- Health check: `GET /api/v1/health`
-- Send email notification: `POST /api/v1/notifications/email`
+- Internal interactive Swagger UI: `GET /docs`
+- Internal OpenAPI JSON: `GET /openapi.json`
+- Internal health check: `GET /health`
+- Public send-email route through the gateway: `POST http://localhost:3000/api/v1/notifications/email`
 
 All paths are relative to the service origin. Email delivery requires the `Authorization: Bearer <NOTIFICATION_API_KEY>` header. The health check and documentation are public.
 The service declares and consumes the single durable `internflare.notifications` queue at startup. It dispatches messages by `eventType` (`user.signed_up`, `job.published`, or `job.application_submitted`). RabbitMQ redelivers events that fail processing; signup events are acknowledged only after Resend accepts the email and PostgreSQL stores the notification. Job listing events are acknowledged after their requested emails are accepted by Resend. Job notifications are at-least-once and may be duplicated if delivery succeeds but the consumer loses its connection before acknowledging the event.
@@ -59,6 +59,7 @@ For `job.published`, the event carries follower email recipients because followe
 
 ```http
 POST /api/v1/notifications/email
+Host: localhost:3000
 Authorization: Bearer replace-with-your-notification-api-key
 Content-Type: application/json
 ```

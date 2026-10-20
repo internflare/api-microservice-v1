@@ -24,10 +24,7 @@ function parseServiceUrl(name: string, fallback: string): URL {
 
 const config = {
   port: parsePort(process.env.PORT),
-  authServiceUrl: parseServiceUrl(
-    "AUTH_SERVICE_URL",
-    "http://localhost:3001",
-  ),
+  authServiceUrl: parseServiceUrl("AUTH_SERVICE_URL", "http://localhost:3001"),
   notificationServiceUrl: parseServiceUrl(
     "NOTIFICATION_SERVICE_URL",
     "http://localhost:3002",
@@ -36,8 +33,8 @@ const config = {
     "JOB_LISTING_SERVICE_URL",
     "http://localhost:3003",
   ),
-  companyServiceUrl: parseServiceUrl(
-    "COMPANY_SERVICE_URL",
+  profileServiceUrl: parseServiceUrl(
+    "PROFILE_SERVICE_URL",
     "http://localhost:3004",
   ),
 };

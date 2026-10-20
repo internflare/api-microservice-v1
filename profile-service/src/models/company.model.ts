@@ -261,7 +261,9 @@ export class CompanyModel {
           throw new Error("User is already an active member of this company");
         }
         if (existing.status === "INVITED") {
-          throw new Error("User already has a pending invitation to this company");
+          throw new Error(
+            "User already has a pending invitation to this company",
+          );
         }
 
         // Previous status was REMOVED; re-invite user
@@ -350,7 +352,10 @@ export class CompanyModel {
           [
             userId,
             member.id,
-            JSON.stringify({ company_id: companyId, role: member.workspace_role }),
+            JSON.stringify({
+              company_id: companyId,
+              role: member.workspace_role,
+            }),
             clientIp ?? null,
           ],
         );
@@ -409,7 +414,9 @@ export class CompanyModel {
         );
         const adminCount = Number.parseInt(adminCountRows[0].count, 10);
         if (adminCount <= 1) {
-          throw new Error("Cannot remove the sole active administrator of a company");
+          throw new Error(
+            "Cannot remove the sole active administrator of a company",
+          );
         }
       }
 
@@ -482,10 +489,11 @@ export class CompanyModel {
         ) VALUES ($1, 'PENDING_REVIEW', $2)
         RETURNING *;
       `;
-      const { rows: verificationRows } = await client.query<CompanyVerification>(
-        insertVerificationQuery,
-        [companyId, JSON.stringify(input.documents)],
-      );
+      const { rows: verificationRows } =
+        await client.query<CompanyVerification>(insertVerificationQuery, [
+          companyId,
+          JSON.stringify(input.documents),
+        ]);
       const verification = verificationRows[0];
 
       // 2. Update company verification_status and registration_number if supplied
@@ -515,7 +523,8 @@ export class CompanyModel {
           JSON.stringify({
             company_id: companyId,
             documents_count: input.documents.length,
-            registration_number: input.registration_number ?? company.registration_number,
+            registration_number:
+              input.registration_number ?? company.registration_number,
           }),
           clientIp ?? null,
         ],
@@ -542,7 +551,9 @@ export class CompanyModel {
       WHERE company_id = $1
       ORDER BY created_at DESC;
     `;
-    const { rows } = await database.query<CompanyVerification>(query, [companyId]);
+    const { rows } = await database.query<CompanyVerification>(query, [
+      companyId,
+    ]);
     return rows;
   }
 
@@ -556,7 +567,9 @@ export class CompanyModel {
       SELECT * FROM company_verifications
       WHERE id = $1;
     `;
-    const { rows } = await database.query<CompanyVerification>(query, [verificationId]);
+    const { rows } = await database.query<CompanyVerification>(query, [
+      verificationId,
+    ]);
     return rows[0] ?? null;
   }
 
@@ -564,7 +577,10 @@ export class CompanyModel {
    * Lists all pending verification requests across all companies for platform administrators.
    */
   static async listPendingVerifications(): Promise<
-    (CompanyVerification & { company_name: string; company_country?: string | null })[]
+    (CompanyVerification & {
+      company_name: string;
+      company_country?: string | null;
+    })[]
   > {
     const query = `
       SELECT 
@@ -577,9 +593,29 @@ export class CompanyModel {
       ORDER BY v.created_at ASC;
     `;
     const { rows } = await database.query<
-      CompanyVerification & { company_name: string; company_country?: string | null }
+      CompanyVerification & {
+        company_name: string;
+        company_country?: string | null;
+      }
     >(query);
     return rows;
+  }
+
+  /**
+   * Retrieves admin dashboard metrics.
+   */
+  static async getAdminDashboardMetrics() {
+    // Implementation for fetching admin dashboard metrics
+    const query = `
+      SELECT 
+        (SELECT COUNT(*) FROM companies) AS total_companies,
+        (SELECT COUNT(*) FROM company_verifications WHERE status = 'PENDING_REVIEW') AS pending_verifications,
+        (SELECT COUNT(*) FROM company_members WHERE workspace_role = 'ADMIN') AS total_admins,
+        (SELECT COUNT(*) FROM company_members WHERE status = 'ACTIVE') AS total_active_members
+      ;
+    `;
+    const { rows } = await database.query(query);
+    return rows[0];
   }
 
   /**
@@ -627,7 +663,8 @@ export class CompanyModel {
       const updatedVerification = updatedVRows[0];
 
       // 2. Update company verification_status (APPROVED -> VERIFIED, REJECTED -> REJECTED)
-      const targetCompanyStatus = input.status === "APPROVED" ? "VERIFIED" : "REJECTED";
+      const targetCompanyStatus =
+        input.status === "APPROVED" ? "VERIFIED" : "REJECTED";
       const updateCompanyQuery = `
         UPDATE companies
         SET verification_status = $1, updated_at = CURRENT_TIMESTAMP
@@ -641,7 +678,8 @@ export class CompanyModel {
       const updatedCompany = updatedCRows[0];
 
       // 3. Emit immutable audit log
-      const auditAction = input.status === "APPROVED" ? "COMPANY_VERIFIED" : "COMPANY_REJECTED";
+      const auditAction =
+        input.status === "APPROVED" ? "COMPANY_VERIFIED" : "COMPANY_REJECTED";
       await client.query(
         `INSERT INTO audit_logs (actor_id, action, entity_type, entity_id, metadata, ip_address)
          VALUES ($1, $2, 'company_verification', $3, $4, $5);`,

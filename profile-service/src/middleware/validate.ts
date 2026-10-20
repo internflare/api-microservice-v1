@@ -1,7 +1,8 @@
 import type { RequestHandler } from "express";
 import { ZodError, type ZodTypeAny } from "zod";
 
-export function validateBody<T extends ZodTypeAny>(schema: T): RequestHandler {
+// Middleware to validate request body against a Zod schema
+function validateBody<T extends ZodTypeAny>(schema: T): RequestHandler {
   return async (req, res, next) => {
     try {
       const parsed = await schema.parseAsync(req.body);
@@ -23,7 +24,8 @@ export function validateBody<T extends ZodTypeAny>(schema: T): RequestHandler {
   };
 }
 
-export function validateParams<T extends ZodTypeAny>(schema: T): RequestHandler {
+// validateParams is a middleware that validates URL parameters using a Zod schema. If the validation fails, it responds with a 400 status code and details about the validation errors. If the validation succeeds, it replaces the request parameters with the validated values and calls the next middleware in the stack.
+function validateParams<T extends ZodTypeAny>(schema: T): RequestHandler {
   return async (req, res, next) => {
     try {
       const parsed = await schema.parseAsync(req.params);
@@ -44,3 +46,5 @@ export function validateParams<T extends ZodTypeAny>(schema: T): RequestHandler 
     }
   };
 }
+
+export { validateBody, validateParams };

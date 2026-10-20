@@ -12,6 +12,14 @@ import { config } from "./config.js";
 import { openApiDocument } from "./docs/openapi.js";
 
 const documentationApp = express();
+const apiVersion = "/api/v1";
+const upstreamServices = [
+  { name: "auth-service", url: config.authServiceUrl },
+  { name: "notification-service", url: config.notificationServiceUrl },
+  { name: "joblisting-service", url: config.jobListingServiceUrl },
+  { name: "profile-service", url: config.profileServiceUrl },
+];
+
 documentationApp.get("/openapi.json", (_request, response) => {
   response.json(openApiDocument);
 });
@@ -54,41 +62,44 @@ function forwardableHeaders(headers: IncomingHttpHeaders): OutgoingHttpHeaders {
   );
 }
 
-// Determine the target service based on the request path.
+// Route public versioned paths to the owning backend service.
 function getTarget(pathname: string): URL {
-  // Keep API paths intact while routing notification, job listing, and auth requests.
   if (
-    pathname === "/api/v1/opportunities" ||
-    pathname.startsWith("/api/v1/opportunities/")
+    pathname === `${apiVersion}/me` ||
+    pathname.startsWith(`${apiVersion}/me/`) ||
+    pathname === `${apiVersion}/health`
+  ) {
+    return config.authServiceUrl;
+  }
+
+  if (
+    pathname === `${apiVersion}/opportunities` ||
+    pathname.startsWith(`${apiVersion}/opportunities/`)
   ) {
     return config.jobListingServiceUrl;
   }
 
   if (
-    pathname === "/api/v1/notifications" ||
-    pathname.startsWith("/api/v1/notifications/") ||
-    pathname === "/api/v1/docs" ||
-    pathname.startsWith("/api/v1/docs/") ||
-    pathname === "/api/v1/openapi.json"
+    pathname === `${apiVersion}/notifications` ||
+    pathname.startsWith(`${apiVersion}/notifications/`) ||
+    pathname === `${apiVersion}/docs` ||
+    pathname.startsWith(`${apiVersion}/docs/`) ||
+    pathname === `${apiVersion}/openapi.json`
   ) {
     return config.notificationServiceUrl;
   }
 
   if (
-    pathname === "/api/v1/companies" ||
-    pathname.startsWith("/api/v1/companies/") ||
-    pathname === "/api/companies" ||
-    pathname.startsWith("/api/companies/") ||
-    pathname === "/api/v1/admin/verifications" ||
-    pathname.startsWith("/api/v1/admin/verifications/") ||
-    pathname === "/api/admin/verifications" ||
-    pathname.startsWith("/api/admin/verifications/") ||
-    pathname === "/api/v1/internal/companies" ||
-    pathname.startsWith("/api/v1/internal/companies/") ||
-    pathname === "/api/internal/companies" ||
-    pathname.startsWith("/api/internal/companies/")
+    pathname === `${apiVersion}/auth` ||
+    pathname.startsWith(`${apiVersion}/auth/`) ||
+    pathname === `${apiVersion}/admin/verifications` ||
+    pathname.startsWith(`${apiVersion}/admin/verifications/`) ||
+    pathname === `${apiVersion}/admin` ||
+    pathname.startsWith(`${apiVersion}/admin/`) ||
+    pathname === `${apiVersion}/internal/companies` ||
+    pathname.startsWith(`${apiVersion}/internal/companies/`)
   ) {
-    return config.companyServiceUrl;
+    return config.profileServiceUrl;
   }
 
   return config.authServiceUrl;
@@ -106,6 +117,40 @@ function sendBadGateway(response: ServerResponse, error: Error): void {
 
   response.writeHead(502, { "content-type": "application/json" });
   response.end(JSON.stringify({ error: "Upstream service unavailable" }));
+}
+
+async function logUpstreamServiceStatuses(): Promise<void> {
+  const statuses = await Promise.all(
+    upstreamServices.map(async (service) => {
+      try {
+        const response = await fetch(new URL("/health", service.url), {
+          signal: AbortSignal.timeout(5_000),
+        });
+        return {
+          name: service.name,
+          status: response.ok
+            ? `healthy (HTTP ${response.status})`
+            : `unhealthy (HTTP ${response.status})`,
+          healthy: response.ok,
+        };
+      } catch (error) {
+        return {
+          name: service.name,
+          status: `unavailable (${error instanceof Error ? error.message : String(error)})`,
+          healthy: false,
+        };
+      }
+    }),
+  );
+
+  for (const service of statuses) {
+    const message = `[gateway] ${service.name}: ${service.status}`;
+    if (service.healthy) {
+      console.info(message);
+    } else {
+      console.error(message);
+    }
+  }
 }
 
 // Create an HTTP server that forwards requests to the appropriate upstream service based on the request path.
@@ -135,7 +180,11 @@ const server = createServer((incoming, outgoing) => {
     return;
   }
 
+  // Forward the request to the appropriate upstream service based on the request path.
   const target = getTarget(requestUrl.pathname);
+  const upstreamPath = requestUrl.pathname.startsWith(`${apiVersion}/`)
+    ? `${requestUrl.pathname.slice(apiVersion.length)}${requestUrl.search}`
+    : `${requestUrl.pathname}${requestUrl.search}`;
   const headers = forwardableHeaders(incoming.headers);
   headers.host = target.host;
   // Do not trust a client-supplied X-Forwarded-For value unless a trusted-proxy policy is configured.
@@ -150,7 +199,7 @@ const server = createServer((incoming, outgoing) => {
       protocol: target.protocol,
       hostname: target.hostname,
       port: target.port || undefined,
-      path: `${requestUrl.pathname}${requestUrl.search}`,
+      path: upstreamPath,
       method: incoming.method,
       headers,
     },
@@ -186,6 +235,7 @@ const server = createServer((incoming, outgoing) => {
 // Start the server and listen on the configured port.
 server.listen(config.port, () => {
   console.info(`Gateway service listening on port ${config.port}`);
+  void logUpstreamServiceStatuses();
 });
 
 let shuttingDown = false;

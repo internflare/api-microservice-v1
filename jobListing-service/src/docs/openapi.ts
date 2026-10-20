@@ -58,7 +58,7 @@ export const openApiDocument = {
     { name: "Applications", description: "Application notification handoff" },
   ],
   paths: {
-    "/api/v1/health": {
+    "/health": {
       get: {
         tags: ["Health"],
         summary: "Check database and RabbitMQ connectivity",
@@ -82,7 +82,7 @@ export const openApiDocument = {
         },
       },
     },
-    "/api/v1/opportunities": {
+    "/opportunities": {
       get: {
         tags: ["Opportunities"],
         summary: "Search and paginate opportunities",
@@ -156,7 +156,7 @@ export const openApiDocument = {
         },
       },
     },
-    "/api/v1/opportunities/{id}": {
+    "/opportunities/{id}": {
       parameters: [
         {
           name: "id",
@@ -183,7 +183,7 @@ export const openApiDocument = {
         },
       },
     },
-    "/api/v1/opportunities/{id}/applications": {
+    "/opportunities/{id}/applications": {
       parameters: [
         {
           name: "id",

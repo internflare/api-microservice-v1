@@ -40,7 +40,7 @@ export const config = {
   databaseUrl,
   authServiceUrl,
   internalServiceSecret,
-  databaseSsl: process.env.DATABASE_SSL === "true",
+  databaseSsl: process.env.DATABASE_SSL?.trim().toLowerCase() === "true",
   trustedOrigins,
   isProduction: nodeEnv === "production",
 };

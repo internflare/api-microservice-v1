@@ -9,21 +9,20 @@ import { healthRoutes } from "./routes/health.routes.js";
 import { emailNotificationRoutes } from "./routes/email-notification.routes.js";
 
 const app = express();
-const apiVersion = "/api/v1";
 
 app.disable("x-powered-by");
 app.use(express.json({ limit: "16kb" }));
 
-app.get(`${apiVersion}/openapi.json`, (_request, response) => {
+app.get("/openapi.json", (_request, response) => {
   response.json(openApiDocument);
 });
 app.use(
-  `${apiVersion}/docs`,
+  "/docs",
   swaggerUi.serve,
   swaggerUi.setup(openApiDocument),
 );
-app.use(`${apiVersion}/health`, healthRoutes);
-app.use(`${apiVersion}/notifications`, emailNotificationRoutes);
+app.use("/health", healthRoutes);
+app.use("/notifications", emailNotificationRoutes);
 app.use(notFoundHandler);
 Sentry.setupExpressErrorHandler(app);
 app.use(errorHandler);

@@ -1,4 +1,4 @@
-import type { CompanyMember } from "./company.types.js";
+import type { CompanyMember } from "./company.types.ts";
 
 export interface AuthenticatedUser {
   id: string;

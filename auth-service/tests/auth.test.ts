@@ -32,8 +32,8 @@ test("Auth Service - OpenAPI Documentation Specification", async (t) => {
   await t.test("OpenAPI spec is defined and conforms to 3.1.0", () => {
     assert.equal(openApiDocument.openapi, "3.1.0");
     assert.equal(openApiDocument.info.title, "Internflare Auth Service");
-    assert.ok(openApiDocument.paths["/api/v1/health"]);
-    assert.ok(openApiDocument.paths["/api/v1/me"]);
+    assert.ok(openApiDocument.paths["/health"]);
+    assert.ok(openApiDocument.paths["/me"]);
     assert.ok(openApiDocument.paths["/api/auth/sign-in/email"]);
     assert.ok(openApiDocument.paths["/api/auth/sign-up/email"]);
     assert.ok(openApiDocument.paths["/api/auth/sign-out"]);

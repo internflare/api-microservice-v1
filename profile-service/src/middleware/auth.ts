@@ -1,6 +1,6 @@
 import type { RequestHandler } from "express";
 import { config } from "../config.js";
-import type { AuthenticatedUser } from "../types/express.d.js";
+import type { AuthenticatedUser } from "../types/express.js";
 
 /**
  * Enforces that the request has an active, valid authentication session
@@ -18,7 +18,9 @@ export const requireAuth: RequestHandler = async (req, res, next) => {
     if (process.env.NODE_ENV === "test" && req.headers["x-test-user-id"]) {
       req.user = {
         id: String(req.headers["x-test-user-id"]),
-        email: String(req.headers["x-test-user-email"] || "test@internflare.com"),
+        email: String(
+          req.headers["x-test-user-email"] || "test@internflare.com",
+        ),
         name: String(req.headers["x-test-user-name"] || "Test User"),
         role: String(req.headers["x-test-user-role"] || "USER"),
       };
@@ -41,7 +43,9 @@ export const requireAuth: RequestHandler = async (req, res, next) => {
       const authRes = await fetch(authUrl, {
         headers: {
           ...(req.headers.cookie ? { cookie: req.headers.cookie } : {}),
-          ...(req.headers.authorization ? { authorization: req.headers.authorization } : {}),
+          ...(req.headers.authorization
+            ? { authorization: req.headers.authorization }
+            : {}),
         },
       });
 
@@ -65,7 +69,10 @@ export const requireAuth: RequestHandler = async (req, res, next) => {
       req.user = session.user;
       next();
     } catch (fetchError) {
-      console.error("[company-service] Failed to reach auth-service:", fetchError);
+      console.error(
+        "[profile-service] Failed to reach auth-service:",
+        fetchError,
+      );
       res.status(503).json({
         error: "Service Unavailable",
         message: "Authentication verification service temporarily unavailable",

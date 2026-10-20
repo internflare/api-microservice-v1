@@ -32,7 +32,7 @@ companyRoutes.use(requireAuth);
 
 // 1. Company CRUD
 companyRoutes.post(
-  "/",
+  "/employer-onboarding",
   validateBody(createCompanySchema),
   createCompany,
 );

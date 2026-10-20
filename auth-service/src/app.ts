@@ -12,7 +12,6 @@ import { config } from "./config.js";
 import { openApiDocument } from "./docs/openapi.js";
 
 const app = express();
-const apiVersion = "/api/v1";
 
 app.disable("x-powered-by");
 
@@ -26,11 +25,11 @@ app.use(
   }),
 );
 
-app.get("/api/v1/openapi.json", (_request, response) => {
+app.get("/openapi.json", (_request, response) => {
   response.json(openApiDocument);
 });
 app.use(
-  "/api/v1/docs",
+  "/docs",
   swaggerUi.serve,
   swaggerUi.setup(openApiDocument),
 );
@@ -39,8 +38,8 @@ app.use(authRoutes);
 
 app.use(express.json({ limit: "16kb" }));
 
-app.use(`${apiVersion}/health`, healthRoutes);
-app.use(`${apiVersion}/me`, sessionRoutes);
+app.use("/health", healthRoutes);
+app.use("/me", sessionRoutes);
 app.use(notFoundHandler);
 Sentry.setupExpressErrorHandler(app);
 app.use(errorHandler);

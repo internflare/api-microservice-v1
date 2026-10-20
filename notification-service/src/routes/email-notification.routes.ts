@@ -4,5 +4,5 @@ import { requireApiKey } from "../middleware/api-key.middleware.js";
 
 export const emailNotificationRoutes = Router();
 
-// POST /api/v1/email-notification/email
+// POST /notifications/email internally; the gateway exposes it under /api/v1.
 emailNotificationRoutes.post("/email", requireApiKey, sendEmail);

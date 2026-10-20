@@ -3,5 +3,5 @@ import { getHealth } from "../controllers/health.controller.js";
 
 export const healthRoutes = Router();
 
-// GET /api/v1/health
+// GET /health internally; the gateway exposes this as /api/v1/health.
 healthRoutes.get("/", getHealth);

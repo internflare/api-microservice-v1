@@ -12,18 +12,18 @@ Set `DATABASE_URL` to the PostgreSQL database for opportunities. If the database
 
 ## Routes
 
-- `GET /api/v1/health` checks PostgreSQL and RabbitMQ connectivity.
-- `GET /api/v1/opportunities` lists opportunities with pagination, sorting, search, and filters.
-- `GET /api/v1/opportunities/:id` returns one opportunity.
-- `POST /api/v1/opportunities` creates an opportunity and queues a job-posted notification when follower recipients are provided.
-- `POST /api/v1/opportunities/:id/applications` queues an email notification to the hiring contact.
-- `GET /api/v1/openapi.json` returns the OpenAPI specification; `GET /api/v1/docs` opens Swagger UI.
+- `GET /health` checks PostgreSQL and RabbitMQ connectivity internally; the gateway exposes it at `/api/v1/health`.
+- `GET /opportunities` lists opportunities with pagination, sorting, search, and filters internally; the gateway exposes it at `/api/v1/opportunities`.
+- `GET /opportunities/:id` returns one opportunity internally.
+- `POST /opportunities` creates an opportunity and queues a job-posted notification when follower recipients are provided internally.
+- `POST /opportunities/:id/applications` queues an email notification to the hiring contact internally.
+- `GET /openapi.json` returns the internal OpenAPI specification; `GET /docs` opens Swagger UI.
 
 List query parameters include `page`, `page_size` (maximum 100), `sort_by` (`created_at`, `updated_at`, `application_deadline`, `start_date`, or `title`), `sort_order` (`asc` or `desc`), `opportunity_type`, `employment_type`, `experience_level`, `work_arrangement`, `country`, `status`, `is_paid`, `search`, `skills` (comma-separated), and `company_id`.
 
 URL query parsing, validation, pagination offsets, sorting metadata, and filter normalization are handled by the `OpportunityQuery` class. Page numbers are limited to 1,000,000 and page sizes to 100.
 
-Example: `GET /api/v1/opportunities?page=2&page_size=10&opportunity_type=internship&sort_by=created_at&sort_order=desc`.
+Example public gateway request: `GET http://localhost:3000/api/v1/opportunities?page=2&page_size=10&opportunity_type=internship&sort_by=created_at&sort_order=desc`.
 
 The opportunity request uses the snake_case fields in the `opportunities` table schema. In addition, `follower_recipients` may be supplied as an array of `{ "email": "...", "name": "..." }` values. This is an integration placeholder: the service does not yet have access to company-follow relationships, so the trusted caller must supply the current followers. Connect this field to the company/follower data source before relying on it for production delivery.
 

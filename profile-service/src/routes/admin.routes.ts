@@ -1,6 +1,7 @@
 import { Router } from "express";
 import {
   decideVerification,
+  getAdminDashboardMetrics,
   listPendingVerifications,
 } from "../controllers/admin.controller.js";
 import { requireAuth, requirePlatformAdmin } from "../middleware/auth.js";
@@ -17,6 +18,9 @@ adminRoutes.use(requireAuth, requirePlatformAdmin);
 
 // Admin verification decision routes
 adminRoutes.get("/verifications", listPendingVerifications);
+
+//get admin dashboard metrics
+adminRoutes.get("/employer/dashboard", getAdminDashboardMetrics);
 
 adminRoutes.post(
   "/verifications/:id/decision",

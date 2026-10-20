@@ -1,10 +1,11 @@
-# Internflare Company Service (`company-service`)
+# Internflare Company Service (`profile-service`)
 
 Standalone microservice managing Company Creation, Member Management, Verification Lifecycle, and Audit Trails for the Internflare platform (PRD §4.2, §4.3, §14; Employer Journey steps 33–34).
 
 ---
 
 ## Features
+
 - **Company Management:** Atomic creation with creator designated as `ADMIN`, profile retrieval, and partial updates with audit trail.
 - **Team & Member Management:** Member invitations, acceptance, role assignment (`ADMIN` / `MEMBER`), and **non-destructive soft removal** (`status = 'REMOVED'`, PRD §14) with protection preventing removal of the sole company administrator.
 - **Verification Submissions & Admin Decisions:** Document uploads, platform administrator review inbox, state machine (`UNVERIFIED` -> `PENDING_REVIEW` -> `VERIFIED` / `REJECTED`), and feature gating (`requireCompanyVerified`).
@@ -12,9 +13,12 @@ Standalone microservice managing Company Creation, Member Management, Verificati
 - **Internal Cross-Service RPC:** Protected endpoints (`x-internal-service-key`) for downstream microservices (`job-service`, `workspace-service`, `billing-service`) to inspect company verification status and member permissions.
 - **Decoupled Auth Handshake:** Remote session validation against `auth-service` (`/api/auth/get-session`) with mock user support for automated testing.
 
+The company service listens on unversioned internal routes (for example, `/auth/employer-onboarding`). Public requests should use the gateway's versioned route, such as `POST http://localhost:3000/api/v1/auth/employer-onboarding`; the gateway strips `/api/v1` before forwarding.
+
 ---
 
 ## Tech Stack
+
 - **Runtime:** Node.js (v22+, ES Modules)
 - **Language:** TypeScript 5.8
 - **Framework:** Express 4.21
@@ -25,8 +29,9 @@ Standalone microservice managing Company Creation, Member Management, Verificati
 ---
 
 ## Directory Structure
+
 ```
-company-service/
+profile-service/
 ├── src/
 │   ├── config.ts                          # Validated environment configuration
 │   ├── app.ts                             # Express application & router mounting
@@ -69,34 +74,47 @@ company-service/
 
 ## Getting Started
 
+The service automatically runs its database migrations before opening the HTTP listener. Ensure `DATABASE_URL` points to the intended database and that the database user can create the company schema.
+
 ### 1. Environment Configuration
+
 Copy `.env.example` to `.env`:
+
 ```sh
 cp .env.example .env
 ```
+
 Ensure the following variables are configured:
+
 ```env
 PORT=3004
 DATABASE_URL=postgresql://user:password@host:5432/internflare
+DATABASE_SSL=false
 AUTH_SERVICE_URL=http://localhost:3001
 CORS_ORIGIN=*
 INTERNAL_SERVICE_SECRET=your-internal-shared-secret-at-least-32-chars
 ```
 
+When PostgreSQL requires TLS, set `DATABASE_SSL=true`. The service verifies the database certificate against the shared CA at `backend/ca.pem`; a TLS-enabled `sslmode` in `DATABASE_URL` also enables verification.
+
 ### 2. Install Dependencies
+
 ```sh
 npm install
 ```
 
 ### 3. Run Database Migrations
+
 ```sh
 npm run db:migrate
 ```
 
 ### 4. Run Development Server
+
 ```sh
 npm run dev
 ```
+
 The service will start on `http://localhost:3004`.
 
 ---
@@ -104,12 +122,15 @@ The service will start on `http://localhost:3004`.
 ## Testing & Build
 
 ### Run Test Suite
+
 ```sh
 npm test
 ```
+
 Executes all 65 automated tests across 5 phase test suites.
 
 ### Type Check & Build
+
 ```sh
 npm run type-check
 npm run build
@@ -118,11 +139,15 @@ npm run build
 ---
 
 ## Docker
+
 Build the container image:
+
 ```sh
-docker build -t internflare-company-service .
+docker build -t internflare-profile-service .
 ```
+
 Run the container:
+
 ```sh
-docker run -p 3004:3004 --env-file .env internflare-company-service
+docker run -p 3004:3004 --env-file .env internflare-profile-service
 ```

@@ -62,7 +62,7 @@ Set `RABBITMQ_URL` to the RabbitMQ broker used by `backend/notification-service`
 
 Set `SENTRY_DSN` to this service's Sentry Node project DSN to enable error and performance reporting. `SENTRY_TRACES_SAMPLE_RATE` optionally controls transaction sampling (default `0.1`). See the workspace [Sentry setup](../../SENTRY.md).
 
-OpenAPI JSON is available at `GET /api/v1/openapi.json`; interactive Swagger UI is at `GET /api/v1/docs`.
+The service's internal OpenAPI JSON is available at `GET /openapi.json`; its interactive Swagger UI is at `GET /docs`. Public API requests use the gateway's `/api/v1` prefix.
 
 Create Better Auth's database tables and start the service:
 
