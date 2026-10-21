@@ -21,6 +21,28 @@ const signupEventSchema = z.object({
   }),
 });
 
+const emailVerificationEventSchema = z.object({
+  eventId: z.uuid(),
+  eventType: z.literal("user.email_verification_requested"),
+  occurredAt: z.iso.datetime(),
+  user: signupEventSchema.shape.user,
+  verificationUrl: z.url().refine(
+    (url) => {
+      const protocol = new URL(url).protocol;
+      return protocol === "http:" || protocol === "https:";
+    },
+    { message: "Verification URL must use HTTP or HTTPS" },
+  ),
+});
+
+const passwordResetEventSchema = z.object({
+  eventId: z.uuid(),
+  eventType: z.literal("user.password_reset_requested"),
+  occurredAt: z.iso.datetime(),
+  user: signupEventSchema.shape.user,
+  resetUrl: emailVerificationEventSchema.shape.verificationUrl,
+});
+
 const recipientSchema = z.object({
   email: z.email(),
   name: z.string().trim().min(1).max(120).optional(),
@@ -149,6 +171,37 @@ async function deliverSignupEvent(
   });
 }
 
+async function deliverEmailVerificationEvent(
+  event: z.infer<typeof emailVerificationEventSchema>,
+): Promise<void> {
+  await sendEmailNotification({
+    type: "account",
+    to: event.user.email,
+    recipientName: event.user.name || undefined,
+    subject: "Verify your Internflare email address",
+    message:
+      "Thanks for creating an Internflare account. Verify your email address to secure your account and continue.",
+    action: {
+      label: "Verify email address",
+      url: event.verificationUrl,
+    },
+  });
+}
+
+async function deliverPasswordResetEvent(
+  event: z.infer<typeof passwordResetEventSchema>,
+): Promise<void> {
+  await sendEmailNotification({
+    type: "account",
+    to: event.user.email,
+    recipientName: event.user.name || undefined,
+    subject: "Reset your Internflare password",
+    message:
+      "We received a request to reset your Internflare password. This link expires in 30 minutes. If you didn't request it, you can safely ignore this email.",
+    action: { label: "Reset password", url: event.resetUrl },
+  });
+}
+
 async function deliverJobPublishedEvent(
   event: z.infer<typeof jobPublishedEventSchema>,
 ): Promise<void> {
@@ -227,6 +280,22 @@ async function deliverNotification(
         return;
       }
       await deliverSignupEvent(event.data);
+    } else if (eventType === "user.email_verification_requested") {
+      const event = emailVerificationEventSchema.safeParse(decoded);
+      if (!event.success) {
+        logger("error", "Discarding invalid email-verification event:", event.error);
+        channel.ack(message);
+        return;
+      }
+      await deliverEmailVerificationEvent(event.data);
+    } else if (eventType === "user.password_reset_requested") {
+      const event = passwordResetEventSchema.safeParse(decoded);
+      if (!event.success) {
+        logger("error", "Discarding invalid password-reset event:", event.error);
+        channel.ack(message);
+        return;
+      }
+      await deliverPasswordResetEvent(event.data);
     } else if (eventType === "job.published") {
       const event = jobPublishedEventSchema.safeParse(decoded);
       if (!event.success) {

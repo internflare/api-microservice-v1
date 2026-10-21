@@ -29,7 +29,7 @@ const opportunityProperties = {
   views_count: { type: "integer", readOnly: true },
   last_synced_at: { type: ["string", "null"], format: "date-time" },
   expires_at: { type: ["string", "null"], format: "date-time" },
-  created_by: { type: ["string", "null"], format: "uuid" },
+  created_by: { type: ["string", "null"] },
   created_at: { type: "string", format: "date-time", readOnly: true },
   updated_at: { type: ["string", "null"], format: "date-time", readOnly: true },
 } as const;
@@ -96,11 +96,12 @@ export const openApiDocument = {
           { name: "experience_level", in: "query", schema: { type: "string" } },
           { name: "work_arrangement", in: "query", schema: { type: "string" } },
           { name: "country", in: "query", schema: { type: "string", minLength: 2, maxLength: 2 } },
-          { name: "status", in: "query", schema: { type: "string" } },
+          { name: "status", in: "query", description: "Defaults to published. Accessing any other status requires an authenticated company administrator and company_id.", schema: { type: "string", enum: ["draft", "published", "paused", "closed"] } },
           { name: "is_paid", in: "query", schema: { type: "boolean" } },
           { name: "search", in: "query", schema: { type: "string", maxLength: 200 } },
           { name: "skills", in: "query", description: "Comma-separated skill names; all listed skills must match.", schema: { type: "string" } },
-          { name: "company_id", in: "query", schema: { type: "string", format: "uuid" } },
+          { name: "company_id", in: "query", description: "With scope=company, lists every status for this company (admin only). Alternatively send company_id in a JSON request body.", schema: { type: "string", format: "uuid" } },
+          { name: "scope", in: "query", description: "Set to `company` to use company_id as the management listing.", schema: { type: "string", enum: ["company"] } },
         ],
         responses: {
           "200": {
@@ -119,14 +120,18 @@ export const openApiDocument = {
               },
             },
           },
+          "401": { description: "Authentication is required for unpublished statuses" },
+          "403": { description: "Active company administrator access is required" },
+          "503": { description: "Company authorization service is unavailable" },
           "500": { description: "The opportunity search failed" },
         },
       },
       post: {
         tags: ["Opportunities"],
         summary: "Create an opportunity",
+        security: [{ sessionCookie: [] }],
         description:
-          "When status is `published` and follower_recipients are included, queues a `job.published` event for notification-service. follower_recipients is a temporary integration input until company follower data is connected.",
+          "Requires an authenticated user with active ADMIN membership in company_id. The company name and creator are derived from trusted service data. When status is `published` and follower_recipients are included, queues a `job.published` event for notification-service.",
         requestBody: {
           required: true,
           content: {
@@ -152,6 +157,9 @@ export const openApiDocument = {
               },
             },
           },
+          "401": { description: "Authentication is required" },
+          "403": { description: "Active company administrator access is required" },
+          "503": { description: "Authentication or company authorization service is unavailable" },
           "500": { description: "Opportunity creation failed" },
         },
       },
@@ -168,6 +176,8 @@ export const openApiDocument = {
       get: {
         tags: ["Opportunities"],
         summary: "Get an opportunity by ID",
+        description:
+          "Published opportunities are public. Any other status requires an authenticated active company administrator.",
         responses: {
           "200": {
             description: "Opportunity record",
@@ -178,8 +188,86 @@ export const openApiDocument = {
             },
           },
           "400": { description: "ID is not a UUID" },
+          "401": { description: "Authentication is required for unpublished opportunities" },
+          "403": { description: "Active company administrator access is required" },
           "404": { description: "Opportunity not found" },
+          "503": { description: "Company authorization service is unavailable" },
           "500": { description: "The opportunity lookup failed" },
+        },
+      },
+      put: {
+        tags: ["Opportunities"],
+        summary: "Update editable fields on an opportunity",
+        security: [{ sessionCookie: [] }],
+        description:
+          "Requires an authenticated user with active ADMIN membership in the opportunity's company.",
+        requestBody: {
+          required: true,
+          content: {
+            "application/json": {
+              schema: { $ref: "#/components/schemas/OpportunityUpdateRequest" },
+            },
+          },
+        },
+        responses: {
+          "200": {
+            description: "Opportunity updated",
+            content: {
+              "application/json": {
+                schema: { $ref: "#/components/schemas/OpportunityResponse" },
+              },
+            },
+          },
+          "400": { description: "Invalid ID or update payload" },
+          "401": { description: "Authentication is required" },
+          "403": { description: "Active company administrator access is required" },
+          "404": { description: "Opportunity not found" },
+          "503": { description: "Authentication or company authorization service is unavailable" },
+        },
+      },
+      patch: {
+        tags: ["Opportunities"],
+        summary: "Partially update an opportunity",
+        security: [{ sessionCookie: [] }],
+        description:
+          "Requires an authenticated user with active ADMIN membership in the opportunity's company.",
+        requestBody: {
+          required: true,
+          content: {
+            "application/json": {
+              schema: { $ref: "#/components/schemas/OpportunityUpdateRequest" },
+            },
+          },
+        },
+        responses: {
+          "200": {
+            description: "Opportunity updated",
+            content: {
+              "application/json": {
+                schema: { $ref: "#/components/schemas/OpportunityResponse" },
+              },
+            },
+          },
+          "400": { description: "Invalid ID or update payload" },
+          "401": { description: "Authentication is required" },
+          "403": { description: "Active company administrator access is required" },
+          "404": { description: "Opportunity not found" },
+          "503": { description: "Authentication or company authorization service is unavailable" },
+        },
+      },
+      delete: {
+        tags: ["Opportunities"],
+        summary: "Delete an opportunity",
+        security: [{ sessionCookie: [] }],
+        description:
+          "Requires an authenticated user with active ADMIN membership in the opportunity's company.",
+        responses: {
+          "204": { description: "Opportunity deleted" },
+          "400": { description: "ID is not a UUID" },
+          "401": { description: "Authentication is required" },
+          "403": { description: "Active company administrator access is required" },
+          "404": { description: "Opportunity not found" },
+          "503": { description: "Authentication or company authorization service is unavailable" },
         },
       },
     },
@@ -222,6 +310,14 @@ export const openApiDocument = {
     },
   },
   components: {
+    securitySchemes: {
+      sessionCookie: {
+        type: "apiKey",
+        in: "cookie",
+        name: "better-auth.session_token",
+        description: "Session cookie returned by a successful Better Auth sign-in.",
+      },
+    },
     schemas: {
       Opportunity: {
         type: "object",
@@ -230,13 +326,73 @@ export const openApiDocument = {
       },
       CreateOpportunityRequest: {
         type: "object",
-        required: opportunityRequired,
+        required: [
+          "company_id",
+          ...opportunityRequired.filter((field) => field !== "source_type"),
+        ],
+        additionalProperties: false,
         properties: {
-          ...opportunityProperties,
+          company_id: { type: "string", format: "uuid" },
+          source_type: { type: "string", default: "employer" },
+          external_apply_url: opportunityProperties.external_apply_url,
+          title: opportunityProperties.title,
+          description: opportunityProperties.description,
+          responsibilities: opportunityProperties.responsibilities,
+          opportunity_type: opportunityProperties.opportunity_type,
+          employment_type: opportunityProperties.employment_type,
+          experience_level: opportunityProperties.experience_level,
+          is_paid: opportunityProperties.is_paid,
+          compensation_min: opportunityProperties.compensation_min,
+          compensation_max: opportunityProperties.compensation_max,
+          currency: opportunityProperties.currency,
+          payment_frequency: opportunityProperties.payment_frequency,
+          country: opportunityProperties.country,
+          location: opportunityProperties.location,
+          work_arrangement: opportunityProperties.work_arrangement,
+          skills_required: opportunityProperties.skills_required,
+          duration_weeks: opportunityProperties.duration_weeks,
+          start_date: opportunityProperties.start_date,
+          application_deadline: opportunityProperties.application_deadline,
+          openings: opportunityProperties.openings,
+          status: {
+            type: "string",
+            enum: ["draft", "published", "paused", "closed"],
+          },
           follower_recipients: {
             type: "array",
             description: "Temporary trusted-caller input for company followers.",
             items: { $ref: "#/components/schemas/NotificationRecipient" },
+          },
+        },
+      },
+      OpportunityUpdateRequest: {
+        type: "object",
+        minProperties: 1,
+        additionalProperties: false,
+        properties: {
+          external_apply_url: opportunityProperties.external_apply_url,
+          title: opportunityProperties.title,
+          description: opportunityProperties.description,
+          responsibilities: opportunityProperties.responsibilities,
+          opportunity_type: opportunityProperties.opportunity_type,
+          employment_type: opportunityProperties.employment_type,
+          experience_level: opportunityProperties.experience_level,
+          is_paid: opportunityProperties.is_paid,
+          compensation_min: opportunityProperties.compensation_min,
+          compensation_max: opportunityProperties.compensation_max,
+          currency: opportunityProperties.currency,
+          payment_frequency: opportunityProperties.payment_frequency,
+          country: opportunityProperties.country,
+          location: opportunityProperties.location,
+          work_arrangement: opportunityProperties.work_arrangement,
+          skills_required: opportunityProperties.skills_required,
+          duration_weeks: opportunityProperties.duration_weeks,
+          start_date: opportunityProperties.start_date,
+          application_deadline: opportunityProperties.application_deadline,
+          openings: opportunityProperties.openings,
+          status: {
+            type: "string",
+            enum: ["draft", "published", "paused", "closed"],
           },
         },
       },

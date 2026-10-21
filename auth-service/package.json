@@ -11,13 +11,14 @@
     "build": "tsc -p tsconfig.build.json",
     "start": "node dist/server.js",
     "type-check": "tsc --noEmit -p tsconfig.json",
-    "auth:migrate": "npx auth@latest migrate",
-    "db:migrate": "tsx src/db/migrate.ts",
+    "auth:migrate": "auth migrate --config ./src/auth.ts --yes",
+    "auth:migrate:runtime": "auth migrate --config ./dist/auth.js --yes",
     "test": "tsx --import ./tests/setup.ts --test tests/**/*.test.ts"
   },
   "dependencies": {
     "@sentry/node": "^10.76.2",
     "amqplib": "^2.2.0",
+    "auth": "1.7.9",
     "better-auth": "^1.7.9",
     "cors": "^2.8.6",
     "dotenv": "^18.0.8",

@@ -4,6 +4,8 @@ import {
   createCompany,
   getCompanyById,
   inviteCompanyMember,
+  listMyAdminCompanies,
+  listAllPostedJobs,
   listCompanyMembers,
   listCompanyVerifications,
   removeCompanyMember,
@@ -36,6 +38,10 @@ companyRoutes.post(
   validateBody(createCompanySchema),
   createCompany,
 );
+
+//get job listing
+companyRoutes.get("/job-listing", listAllPostedJobs);
+companyRoutes.get("/mine", listMyAdminCompanies);
 
 companyRoutes.get(
   "/:id",

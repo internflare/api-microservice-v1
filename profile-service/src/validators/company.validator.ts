@@ -20,7 +20,10 @@ export const createCompanySchema = z.object({
     .string()
     .trim()
     .toUpperCase()
-    .regex(countryCodeRegex, "Country must be a 2-letter ISO country code (e.g., NG, US, GB)")
+    .regex(
+      countryCodeRegex,
+      "Country must be a 2-letter ISO country code (e.g., NG, US, GB)",
+    )
     .optional()
     .nullable(),
   industry: z
@@ -47,12 +50,11 @@ export const createCompanySchema = z.object({
 export const updateCompanySchema = createCompanySchema.partial();
 
 export const inviteMemberSchema = z.object({
-  user_id: z
-    .string()
-    .trim()
-    .min(1, "User ID is required"),
+  user_id: z.string().trim().min(1, "User ID is required"),
   workspace_role: z.enum(["ADMIN", "MEMBER"], {
-    errorMap: () => ({ message: "workspace_role must be either ADMIN or MEMBER" }),
+    errorMap: () => ({
+      message: "workspace_role must be either ADMIN or MEMBER",
+    }),
   }),
 });
 
@@ -62,16 +64,8 @@ export const verificationDocumentSchema = z.object({
     .trim()
     .min(2, "Document title must be at least 2 characters")
     .max(255),
-  url: z
-    .string()
-    .trim()
-    .url("Document URL must be a valid URL")
-    .max(500),
-  document_type: z
-    .string()
-    .trim()
-    .max(100)
-    .optional(),
+  url: z.string().trim().url("Document URL must be a valid URL").max(500),
+  document_type: z.string().trim().max(100).optional(),
   uploaded_at: z
     .string()
     .datetime({ offset: true })
@@ -80,19 +74,18 @@ export const verificationDocumentSchema = z.object({
 });
 
 export const submitVerificationSchema = z.object({
-  registration_number: z
-    .string()
-    .trim()
-    .max(100)
-    .optional(),
+  registration_number: z.string().trim().max(100).optional(),
   documents: z
     .array(verificationDocumentSchema)
     .min(1, "At least one verification document is required"),
 });
 
+// Admin decision schema for verification requests
 export const adminVerificationDecisionSchema = z.object({
   status: z.enum(["APPROVED", "REJECTED"], {
-    errorMap: () => ({ message: "Decision status must be either APPROVED or REJECTED" }),
+    errorMap: () => ({
+      message: "Decision status must be either APPROVED or REJECTED",
+    }),
   }),
   review_notes: z
     .string()
@@ -115,4 +108,6 @@ export type CreateCompanyInput = z.infer<typeof createCompanySchema>;
 export type UpdateCompanyInput = z.infer<typeof updateCompanySchema>;
 export type InviteMemberInput = z.infer<typeof inviteMemberSchema>;
 export type SubmitVerificationInput = z.infer<typeof submitVerificationSchema>;
-export type AdminVerificationDecisionInput = z.infer<typeof adminVerificationDecisionSchema>;
+export type AdminVerificationDecisionInput = z.infer<
+  typeof adminVerificationDecisionSchema
+>;

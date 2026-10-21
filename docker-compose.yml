@@ -120,8 +120,15 @@ services:
       NODE_ENV: development
       PORT: "3003"
       RABBITMQ_URL: amqp://rabbitmq:5672
+      AUTH_SERVICE_URL: http://auth-service:3001
+      PROFILE_SERVICE_URL: http://profile-service:3004
+      INTERNAL_SERVICE_SECRET: ${INTERNAL_SERVICE_SECRET:-internflare-internal-microservice-secret-key-32chars}
     depends_on:
       rabbitmq:
+        condition: service_healthy
+      auth-service:
+        condition: service_healthy
+      profile-service:
         condition: service_healthy
     ports:
       - "3003:3003"
@@ -149,6 +156,7 @@ services:
       NODE_ENV: development
       PORT: "3004"
       AUTH_SERVICE_URL: http://auth-service:3001
+      INTERNAL_SERVICE_SECRET: ${INTERNAL_SERVICE_SECRET:-internflare-internal-microservice-secret-key-32chars}
     depends_on:
       auth-service:
         condition: service_healthy

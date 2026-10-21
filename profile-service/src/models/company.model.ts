@@ -244,6 +244,42 @@ export class CompanyModel {
   }
 
   /**
+   * Checks if a user is an admin of a specific company.
+   */
+  static async isCompanyAdmin(userId: string): Promise<string | null> {
+    const query = `
+      SELECT company_id FROM company_members
+      WHERE user_id = $1
+        AND workspace_role = 'ADMIN'
+        AND status = 'ACTIVE'
+      LIMIT 1;
+    `;
+    const { rows } = await database.query<{ company_id: string }>(query, [
+      userId,
+    ]);
+    return rows[0]?.company_id ?? null;
+  }
+
+  static async listActiveAdminCompaniesForUser(
+    userId: string,
+  ): Promise<Array<Pick<Company, "id" | "name" | "country">>> {
+    const { rows } = await database.query<
+      Pick<Company, "id" | "name" | "country">
+    >(
+      `SELECT c.id, c.name, c.country
+       FROM companies c
+       INNER JOIN company_members m ON m.company_id = c.id
+       WHERE m.user_id = $1
+         AND m.workspace_role = 'ADMIN'
+         AND m.status = 'ACTIVE'
+         AND c.deleted_at IS NULL
+       ORDER BY m.created_at ASC`,
+      [userId],
+    );
+    return rows;
+  }
+
+  /**
    * Invites a user to a company with a designated workspace role.
    * If a previous membership existed in REMOVED state, restores to INVITED.
    */
@@ -620,18 +656,64 @@ export class CompanyModel {
   /**
    * Retrieves admin dashboard metrics.
    */
-  static async getAdminDashboardMetrics() {
-    // Implementation for fetching admin dashboard metrics
+  static async getAdminDashboardMetrics(companyId: string): Promise<{
+    total_opportunities: number;
+    published_opportunities: number;
+    draft_opportunities: number;
+    total_views: number;
+    last_3_opportunities: Array<{
+      id: string;
+      title: string;
+      status: string;
+      views: number;
+      created_at: Date;
+    }>;
+  }> {
     const query = `
-      SELECT 
-        (SELECT COUNT(*) FROM companies) AS total_companies,
-        (SELECT COUNT(*) FROM company_verifications WHERE status = 'PENDING_REVIEW') AS pending_verifications,
-        (SELECT COUNT(*) FROM company_members WHERE workspace_role = 'ADMIN') AS total_admins,
-        (SELECT COUNT(*) FROM company_members WHERE status = 'ACTIVE') AS total_active_members
-      ;
+      WITH company_opportunities AS (
+        SELECT id, title, status, views_count, created_at
+        FROM opportunities
+        WHERE company_id = $1
+      ),
+      recent_opportunities AS (
+        SELECT id, title, status, views_count, created_at
+        FROM company_opportunities
+        ORDER BY created_at DESC
+        LIMIT 3
+      )
+      SELECT
+        (SELECT COUNT(*)::int FROM company_opportunities) AS total_opportunities,
+        (SELECT COUNT(*)::int FROM company_opportunities WHERE status = 'published') AS published_opportunities,
+        (SELECT COUNT(*)::int FROM company_opportunities WHERE status = 'draft') AS draft_opportunities,
+        (SELECT COALESCE(SUM(views_count), 0)::int FROM company_opportunities) AS total_views,
+        COALESCE(
+          (
+            SELECT json_agg(json_build_object(
+              'id', id,
+              'title', title,
+              'status', status,
+              'views', views_count,
+              'created_at', created_at
+            ) ORDER BY created_at DESC)
+            FROM recent_opportunities
+          ),
+          '[]'::json
+        ) AS last_3_opportunities;
     `;
-    const { rows } = await database.query(query);
+    const { rows } = await database.query(query, [companyId]);
     return rows[0];
+  }
+
+  /**
+   * Get List of Jobs posted by a company
+   */
+  static async listAllPostedJobs(companyId: string) {
+    const query = `
+     SELECT * FROM opportunities
+      WHERE company_id = $1;
+    `;
+    const { rows } = await database.query(query, [companyId]);
+    return rows;
   }
 
   /**

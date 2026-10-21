@@ -68,7 +68,7 @@ export const openApiDocument = {
         tags: ["Authentication"],
         summary: "Create an account with email and password",
         description:
-          "Better Auth creates the account. A welcome-email event is published to the shared RabbitMQ notification queue after successful account creation.",
+          "Better Auth creates the account and sends a verification email with a button link through the shared RabbitMQ notification queue. Email/password users cannot sign in until their email is verified.",
         requestBody: {
           required: true,
           content: {
@@ -78,7 +78,7 @@ export const openApiDocument = {
           },
         },
         responses: {
-          "200": { description: "Account created and session returned" },
+          "200": { description: "Account created; check email to verify before continuing onboarding" },
           "400": { description: "Invalid sign-up request" },
           "429": { description: "Too many requests" },
         },
@@ -88,6 +88,7 @@ export const openApiDocument = {
       post: {
         tags: ["Authentication"],
         summary: "Sign in with email and password",
+        description: "Email/password accounts must verify their email address before a session can be created.",
         requestBody: {
           required: true,
           content: {
@@ -100,7 +101,7 @@ export const openApiDocument = {
           "200": {
             description: "Sign-in succeeded; session is set in a response cookie",
           },
-          "401": { description: "Invalid email or password" },
+          "401": { description: "Invalid email or password, or email verification is required" },
           "429": { description: "Too many requests" },
         },
       },
@@ -112,7 +113,33 @@ export const openApiDocument = {
         description: "Pass the session cookie to invalidate the session.",
         responses: {
           "200": { description: "Session signed out" },
-          "401": { description: "No valid session was provided" },
+          "401": { description: "No valid session was provided"           },
+        },
+      },
+    },
+    "/api/auth/verify-email": {
+      get: {
+        tags: ["Authentication"],
+        summary: "Verify an email address",
+        description:
+          "Better Auth validates the one-time verification token from the email link, verifies the address, and redirects to the sign-up callback URL.",
+        parameters: [
+          {
+            name: "token",
+            in: "query",
+            required: true,
+            schema: { type: "string" },
+          },
+          {
+            name: "callbackURL",
+            in: "query",
+            required: false,
+            schema: { type: "string", format: "uri" },
+          },
+        ],
+        responses: {
+          "302": { description: "Email verified; redirected to onboarding" },
+          "400": { description: "Verification token is invalid or expired" },
         },
       },
     },

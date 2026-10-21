@@ -6,24 +6,10 @@ import type { AuthenticatedUser } from "../types/express.js";
  * Enforces that the request has an active, valid authentication session
  * by introspecting the session with auth-service (or mock headers in tests).
  */
-export const requireAuth: RequestHandler = async (req, res, next) => {
+const requireAuth: RequestHandler = async (req, res, next) => {
   try {
     // If user is already attached (e.g., test mocks or upstream gateway enrichment)
     if (req.user) {
-      next();
-      return;
-    }
-
-    // In test environment, allow passing test user context via headers if provided
-    if (process.env.NODE_ENV === "test" && req.headers["x-test-user-id"]) {
-      req.user = {
-        id: String(req.headers["x-test-user-id"]),
-        email: String(
-          req.headers["x-test-user-email"] || "test@internflare.com",
-        ),
-        name: String(req.headers["x-test-user-name"] || "Test User"),
-        role: String(req.headers["x-test-user-role"] || "USER"),
-      };
       next();
       return;
     }
@@ -90,7 +76,7 @@ export const requireAuth: RequestHandler = async (req, res, next) => {
 /**
  * Enforces that the authenticated user possesses platform administrator privileges.
  */
-export const requirePlatformAdmin: RequestHandler = (req, res, next) => {
+const requirePlatformAdmin: RequestHandler = (req, res, next) => {
   if (!req.user) {
     res.status(401).json({
       error: "Unauthorized",
@@ -110,3 +96,5 @@ export const requirePlatformAdmin: RequestHandler = (req, res, next) => {
 
   next();
 };
+
+export { requirePlatformAdmin, requireAuth };

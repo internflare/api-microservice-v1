@@ -28,4 +28,4 @@ COPY --chown=node:node ca.pem /ca.pem
 # Avoid running the service as root inside the container.
 USER node
 EXPOSE 3001
-CMD ["node", "dist/server.js"]
+CMD ["sh", "-c", "node dist/db/ensure-schema.js && npm run auth:migrate:runtime && exec node dist/server.js"]

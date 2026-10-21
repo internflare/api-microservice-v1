@@ -1,5 +1,7 @@
 import type { RequestHandler } from "express";
 import { CompanyModel } from "../models/company.model.js";
+import { isCompanyAdmin } from "./employer.controller.js";
+import { AppError } from "../utils/appError.js";
 
 /**
  * POST /api/companies
@@ -36,6 +38,21 @@ export const createCompany: RequestHandler = async (req, res, next) => {
       company,
       member,
     });
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const listMyAdminCompanies: RequestHandler = async (req, res, next) => {
+  try {
+    const userId = req.user?.id;
+    if (!userId) {
+      throw new AppError("Authentication is required", 401);
+    }
+
+    const companies =
+      await CompanyModel.listActiveAdminCompaniesForUser(userId);
+    res.status(200).json({ companies });
   } catch (error) {
     next(error);
   }
@@ -134,7 +151,7 @@ export const inviteCompanyMember: RequestHandler = async (req, res, next) => {
  * GET /api/companies/:id/members
  * Lists all company members and their statuses. Restricted to company members.
  */
-export const listCompanyMembers: RequestHandler = async (req, res, next) => {
+const listCompanyMembers: RequestHandler = async (req, res, next) => {
   try {
     const companyId = String(req.params.id);
     const members = await CompanyModel.listMembers(companyId);
@@ -254,11 +271,7 @@ export const submitCompanyVerification: RequestHandler = async (
  * GET /api/companies/:id/verifications
  * Lists verification submission history for the company. Restricted to company members.
  */
-export const listCompanyVerifications: RequestHandler = async (
-  req,
-  res,
-  next,
-) => {
+const listCompanyVerifications: RequestHandler = async (req, res, next) => {
   try {
     const companyId = String(req.params.id);
     const verifications =
@@ -268,3 +281,23 @@ export const listCompanyVerifications: RequestHandler = async (
     next(error);
   }
 };
+
+const listAllPostedJobs: RequestHandler = async (req, res, next) => {
+  try {
+    // ! May not be only admin
+    const userId = req.user?.id;
+    const companyId = await isCompanyAdmin(userId!);
+
+    if (!companyId) {
+      throw new AppError("user does not have admin priviledge", 403);
+    }
+
+    // Fetch and return the dashboard metrics
+    const metrics = await CompanyModel.listAllPostedJobs(companyId);
+    res.status(200).json({ metrics });
+  } catch (error) {
+    next(error);
+  }
+};
+
+export { listCompanyMembers, listCompanyVerifications, listAllPostedJobs };

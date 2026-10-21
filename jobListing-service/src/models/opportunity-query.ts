@@ -18,7 +18,7 @@ const opportunityQuerySchema = z.object({
   experience_level: z.string().trim().min(1).optional(), // Filter by experience level if provided
   work_arrangement: z.string().trim().min(1).optional(), // Filter by work arrangement if provided
   country: z.string().trim().length(2).optional(), // Filter by country code if provided
-  status: z.string().trim().min(1).optional(), // Filter by status if provided
+  status: z.enum(["draft", "published", "paused", "closed"]).optional(),
   is_paid: z
     .enum(["true", "false"])
     .transform((value) => value === "true")

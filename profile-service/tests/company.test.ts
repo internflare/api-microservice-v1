@@ -4,7 +4,7 @@ import { config } from "../src/config.js";
 import {
   decideVerification,
   listPendingVerifications,
-} from "../src/controllers/admin.controller.js";
+} from "../src/controllers/employer.controller.js";
 import {
   acceptMembershipInvite,
   createCompany,
@@ -95,36 +95,32 @@ function createMockHttp(options: {
   };
 }
 
-function passErrorToHandler(
-  context: ReturnType<typeof createMockHttp>,
-): void {
-  errorHandler(
-    context.getNextError(),
-    context.req,
-    context.res,
-    context.next,
-  );
+function passErrorToHandler(context: ReturnType<typeof createMockHttp>): void {
+  errorHandler(context.getNextError(), context.req, context.res, context.next);
 }
 
 // ============================================================================
 // SUITE 1: Validation Schema & Request Parameter Contracts
 // ============================================================================
 test("Suite 1: Validation Schema Contracts", async (t) => {
-  await t.test("createCompanySchema should accept valid company payload", () => {
-    const valid = {
-      name: "Acme Corp",
-      website: "https://acme.example.com",
-      country: "ng", // Should be transformed to uppercase
-      industry: "Technology",
-      registration_number: "RC-123456",
-      logo_url: "https://acme.example.com/logo.png",
-    };
+  await t.test(
+    "createCompanySchema should accept valid company payload",
+    () => {
+      const valid = {
+        name: "Acme Corp",
+        website: "https://acme.example.com",
+        country: "ng", // Should be transformed to uppercase
+        industry: "Technology",
+        registration_number: "RC-123456",
+        logo_url: "https://acme.example.com/logo.png",
+      };
 
-    const parsed = createCompanySchema.parse(valid);
-    assert.equal(parsed.name, "Acme Corp");
-    assert.equal(parsed.country, "NG");
-    assert.equal(parsed.website, "https://acme.example.com");
-  });
+      const parsed = createCompanySchema.parse(valid);
+      assert.equal(parsed.name, "Acme Corp");
+      assert.equal(parsed.country, "NG");
+      assert.equal(parsed.website, "https://acme.example.com");
+    },
+  );
 
   await t.test("createCompanySchema should reject invalid country code", () => {
     const invalid = {
@@ -174,50 +170,65 @@ test("Suite 1: Validation Schema Contracts", async (t) => {
     };
 
     assert.equal(inviteMemberSchema.parse(validAdmin).workspace_role, "ADMIN");
-    assert.equal(inviteMemberSchema.parse(validMember).workspace_role, "MEMBER");
+    assert.equal(
+      inviteMemberSchema.parse(validMember).workspace_role,
+      "MEMBER",
+    );
     assert.throws(() => inviteMemberSchema.parse(invalidRole));
   });
 
-  await t.test("submitVerificationSchema requires at least one document", () => {
-    const emptyDocs = {
-      registration_number: "RC-123456",
-      documents: [],
-    };
+  await t.test(
+    "submitVerificationSchema requires at least one document",
+    () => {
+      const emptyDocs = {
+        registration_number: "RC-123456",
+        documents: [],
+      };
 
-    assert.throws(
-      () => submitVerificationSchema.parse(emptyDocs),
-      /At least one verification document is required/,
-    );
+      assert.throws(
+        () => submitVerificationSchema.parse(emptyDocs),
+        /At least one verification document is required/,
+      );
 
-    const validDocs = {
-      registration_number: "RC-123456",
-      documents: [
-        {
-          title: "Certificate of Incorporation",
-          url: "https://storage.internflare.com/docs/cert.pdf",
-          document_type: "INCORPORATION_CERTIFICATE",
-        },
-      ],
-    };
+      const validDocs = {
+        registration_number: "RC-123456",
+        documents: [
+          {
+            title: "Certificate of Incorporation",
+            url: "https://storage.internflare.com/docs/cert.pdf",
+            document_type: "INCORPORATION_CERTIFICATE",
+          },
+        ],
+      };
 
-    const parsed = submitVerificationSchema.parse(validDocs);
-    assert.equal(parsed.documents.length, 1);
-    assert.equal(parsed.documents[0].title, "Certificate of Incorporation");
-  });
+      const parsed = submitVerificationSchema.parse(validDocs);
+      assert.equal(parsed.documents.length, 1);
+      assert.equal(parsed.documents[0].title, "Certificate of Incorporation");
+    },
+  );
 
-  await t.test("adminVerificationDecisionSchema accepts only APPROVED or REJECTED", () => {
-    assert.equal(
-      adminVerificationDecisionSchema.parse({ status: "APPROVED", review_notes: "All good" }).status,
-      "APPROVED",
-    );
-    assert.equal(
-      adminVerificationDecisionSchema.parse({ status: "REJECTED", review_notes: "Missing seal" }).status,
-      "REJECTED",
-    );
-    assert.throws(() =>
-      adminVerificationDecisionSchema.parse({ status: "MAYBE" }),
-    );
-  });
+  await t.test(
+    "adminVerificationDecisionSchema accepts only APPROVED or REJECTED",
+    () => {
+      assert.equal(
+        adminVerificationDecisionSchema.parse({
+          status: "APPROVED",
+          review_notes: "All good",
+        }).status,
+        "APPROVED",
+      );
+      assert.equal(
+        adminVerificationDecisionSchema.parse({
+          status: "REJECTED",
+          review_notes: "Missing seal",
+        }).status,
+        "REJECTED",
+      );
+      assert.throws(() =>
+        adminVerificationDecisionSchema.parse({ status: "MAYBE" }),
+      );
+    },
+  );
 
   await t.test("uuidParamSchema validates UUID format", () => {
     const validUUID = { id: "a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11" };
@@ -227,187 +238,220 @@ test("Suite 1: Validation Schema Contracts", async (t) => {
     assert.throws(() => uuidParamSchema.parse(invalidUUID));
   });
 
-  await t.test("memberParamSchema validates both company and member UUIDs", () => {
-    const valid = {
-      id: "a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11",
-      memberId: "b1eebc99-9c0b-4ef8-bb6d-6bb9bd380a22",
-    };
-    const invalid = {
-      id: "a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11",
-      memberId: "123-bad-id",
-    };
+  await t.test(
+    "memberParamSchema validates both company and member UUIDs",
+    () => {
+      const valid = {
+        id: "a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11",
+        memberId: "b1eebc99-9c0b-4ef8-bb6d-6bb9bd380a22",
+      };
+      const invalid = {
+        id: "a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11",
+        memberId: "123-bad-id",
+      };
 
-    assert.equal(memberParamSchema.parse(valid).memberId, valid.memberId);
-    assert.throws(() => memberParamSchema.parse(invalid));
-  });
+      assert.equal(memberParamSchema.parse(valid).memberId, valid.memberId);
+      assert.throws(() => memberParamSchema.parse(invalid));
+    },
+  );
 });
 
 // ============================================================================
 // SUITE 2: Authentication & Authorization Guards
 // ============================================================================
 test("Suite 2: Authentication & Ownership Guards", async (t) => {
-  await t.test("requireAuth blocks requests without authentication with 401", async () => {
-    const { req, res, next, getStatusCode, getResponseData, wasNextCalled } =
-      createMockHttp({});
+  await t.test(
+    "requireAuth blocks requests without authentication with 401",
+    async () => {
+      const { req, res, next, getStatusCode, getResponseData, wasNextCalled } =
+        createMockHttp({});
 
-    await (requireAuth as any)(req, res, next);
+      await (requireAuth as any)(req, res, next);
 
-    assert.equal(wasNextCalled(), false);
-    assert.equal(getStatusCode(), 401);
-    assert.equal(getResponseData().error, "Unauthorized");
-  });
+      assert.equal(wasNextCalled(), false);
+      assert.equal(getStatusCode(), 401);
+      assert.equal(getResponseData().error, "Unauthorized");
+    },
+  );
 
-  await t.test("requireAuth attaches authenticated user when valid test header provided", async () => {
-    const originalEnv = process.env.NODE_ENV;
-    process.env.NODE_ENV = "test";
+  await t.test(
+    "requireAuth attaches authenticated user when valid test header provided",
+    async () => {
+      const originalEnv = process.env.NODE_ENV;
+      process.env.NODE_ENV = "test";
 
-    const { req, res, next, wasNextCalled } = createMockHttp({
-      headers: {
-        "x-test-user-id": "usr-founder-1",
-        "x-test-user-email": "founder@internflare.com",
-        "x-test-user-role": "EMPLOYER",
-      },
-    });
+      const { req, res, next, wasNextCalled } = createMockHttp({
+        headers: {
+          "x-test-user-id": "usr-founder-1",
+          "x-test-user-email": "founder@internflare.com",
+          "x-test-user-role": "EMPLOYER",
+        },
+      });
 
-    await (requireAuth as any)(req, res, next);
+      await (requireAuth as any)(req, res, next);
 
-    assert.equal(wasNextCalled(), true);
-    assert.equal(req.user?.id, "usr-founder-1");
-    assert.equal(req.user?.email, "founder@internflare.com");
+      assert.equal(wasNextCalled(), true);
+      assert.equal(req.user?.id, "usr-founder-1");
+      assert.equal(req.user?.email, "founder@internflare.com");
 
-    process.env.NODE_ENV = originalEnv;
-  });
+      process.env.NODE_ENV = originalEnv;
+    },
+  );
 });
 
 test("Suite 2: Company Authorization & Role Guards", async (t) => {
   const companyId = "c0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11";
 
-  await t.test("requireCompanyMember blocks users not in the company with 403", async () => {
-    const originalFindMember = CompanyModel.findMember;
-    CompanyModel.findMember = async () => null;
+  await t.test(
+    "requireCompanyMember blocks users not in the company with 403",
+    async () => {
+      const originalFindMember = CompanyModel.findMember;
+      CompanyModel.findMember = async () => null;
 
-    const { req, res, next, getStatusCode, getResponseData, wasNextCalled } =
-      createMockHttp({
-        user: { id: "usr-stranger-99", email: "stranger@example.com" },
-        params: { id: companyId },
-      });
+      const { req, res, next, getStatusCode, getResponseData, wasNextCalled } =
+        createMockHttp({
+          user: { id: "usr-stranger-99", email: "stranger@example.com" },
+          params: { id: companyId },
+        });
 
-    await (requireCompanyMember as any)(req, res, next);
+      await (requireCompanyMember as any)(req, res, next);
 
-    assert.equal(wasNextCalled(), false);
-    assert.equal(getStatusCode(), 403);
-    assert.equal(getResponseData().message, "You are not a member of this company");
+      assert.equal(wasNextCalled(), false);
+      assert.equal(getStatusCode(), 403);
+      assert.equal(
+        getResponseData().message,
+        "You are not a member of this company",
+      );
 
-    CompanyModel.findMember = originalFindMember;
-  });
+      CompanyModel.findMember = originalFindMember;
+    },
+  );
 
-  await t.test("requireCompanyMember blocks REMOVED members with 403 (PRD §14 Access Revocation)", async () => {
-    const originalFindMember = CompanyModel.findMember;
-    CompanyModel.findMember = async () =>
-      ({
-        id: "mem-1",
+  await t.test(
+    "requireCompanyMember blocks REMOVED members with 403 (PRD §14 Access Revocation)",
+    async () => {
+      const originalFindMember = CompanyModel.findMember;
+      CompanyModel.findMember = async () =>
+        ({
+          id: "mem-1",
+          company_id: companyId,
+          user_id: "usr-former-employee",
+          workspace_role: "MEMBER",
+          status: "REMOVED",
+          removed_at: new Date(),
+          created_at: new Date(),
+          updated_at: new Date(),
+        }) as CompanyMember;
+
+      const { req, res, next, getStatusCode, getResponseData, wasNextCalled } =
+        createMockHttp({
+          user: { id: "usr-former-employee", email: "ex@example.com" },
+          params: { id: companyId },
+        });
+
+      await (requireCompanyMember as any)(req, res, next);
+
+      assert.equal(wasNextCalled(), false);
+      assert.equal(getStatusCode(), 403);
+      assert.match(getResponseData().message, /Access revoked/);
+
+      CompanyModel.findMember = originalFindMember;
+    },
+  );
+
+  await t.test(
+    "requireCompanyMember blocks pending INVITED members with 403 until accepted",
+    async () => {
+      const originalFindMember = CompanyModel.findMember;
+      CompanyModel.findMember = async () =>
+        ({
+          id: "mem-2",
+          company_id: companyId,
+          user_id: "usr-invited-intern",
+          workspace_role: "MEMBER",
+          status: "INVITED",
+          created_at: new Date(),
+          updated_at: new Date(),
+        }) as CompanyMember;
+
+      const { req, res, next, getStatusCode, getResponseData, wasNextCalled } =
+        createMockHttp({
+          user: { id: "usr-invited-intern", email: "intern@example.com" },
+          params: { id: companyId },
+        });
+
+      await (requireCompanyMember as any)(req, res, next);
+
+      assert.equal(wasNextCalled(), false);
+      assert.equal(getStatusCode(), 403);
+      assert.match(
+        getResponseData().message,
+        /Membership invitation is pending acceptance/,
+      );
+
+      CompanyModel.findMember = originalFindMember;
+    },
+  );
+
+  await t.test(
+    "requireCompanyMember allows ACTIVE members and attaches companyMember context",
+    async () => {
+      const originalFindMember = CompanyModel.findMember;
+      const mockMember: CompanyMember = {
+        id: "mem-3",
         company_id: companyId,
-        user_id: "usr-former-employee",
+        user_id: "usr-active-member",
         workspace_role: "MEMBER",
-        status: "REMOVED",
-        removed_at: new Date(),
+        status: "ACTIVE",
+        joined_at: new Date(),
         created_at: new Date(),
         updated_at: new Date(),
-      }) as CompanyMember;
+      };
+      CompanyModel.findMember = async () => mockMember;
 
-    const { req, res, next, getStatusCode, getResponseData, wasNextCalled } =
-      createMockHttp({
-        user: { id: "usr-former-employee", email: "ex@example.com" },
+      const { req, res, next, wasNextCalled } = createMockHttp({
+        user: { id: "usr-active-member", email: "active@example.com" },
         params: { id: companyId },
       });
 
-    await (requireCompanyMember as any)(req, res, next);
+      await (requireCompanyMember as any)(req, res, next);
 
-    assert.equal(wasNextCalled(), false);
-    assert.equal(getStatusCode(), 403);
-    assert.match(getResponseData().message, /Access revoked/);
+      assert.equal(wasNextCalled(), true);
+      assert.deepEqual(req.companyMember, mockMember);
 
-    CompanyModel.findMember = originalFindMember;
-  });
-
-  await t.test("requireCompanyMember blocks pending INVITED members with 403 until accepted", async () => {
-    const originalFindMember = CompanyModel.findMember;
-    CompanyModel.findMember = async () =>
-      ({
-        id: "mem-2",
-        company_id: companyId,
-        user_id: "usr-invited-intern",
-        workspace_role: "MEMBER",
-        status: "INVITED",
-        created_at: new Date(),
-        updated_at: new Date(),
-      }) as CompanyMember;
-
-    const { req, res, next, getStatusCode, getResponseData, wasNextCalled } =
-      createMockHttp({
-        user: { id: "usr-invited-intern", email: "intern@example.com" },
-        params: { id: companyId },
-      });
-
-    await (requireCompanyMember as any)(req, res, next);
-
-    assert.equal(wasNextCalled(), false);
-    assert.equal(getStatusCode(), 403);
-    assert.match(getResponseData().message, /Membership invitation is pending acceptance/);
-
-    CompanyModel.findMember = originalFindMember;
-  });
-
-  await t.test("requireCompanyMember allows ACTIVE members and attaches companyMember context", async () => {
-    const originalFindMember = CompanyModel.findMember;
-    const mockMember: CompanyMember = {
-      id: "mem-3",
-      company_id: companyId,
-      user_id: "usr-active-member",
-      workspace_role: "MEMBER",
-      status: "ACTIVE",
-      joined_at: new Date(),
-      created_at: new Date(),
-      updated_at: new Date(),
-    };
-    CompanyModel.findMember = async () => mockMember;
-
-    const { req, res, next, wasNextCalled } = createMockHttp({
-      user: { id: "usr-active-member", email: "active@example.com" },
-      params: { id: companyId },
-    });
-
-    await (requireCompanyMember as any)(req, res, next);
-
-    assert.equal(wasNextCalled(), true);
-    assert.deepEqual(req.companyMember, mockMember);
-
-    CompanyModel.findMember = originalFindMember;
-  });
+      CompanyModel.findMember = originalFindMember;
+    },
+  );
 });
 
 test("Suite 2: Role Privilege Enforcement", async (t) => {
-  await t.test("requireCompanyRole blocks regular MEMBER from ADMIN operations with 403", () => {
-    const guard = requireCompanyRole(["ADMIN"]);
-    const { req, res, next, getStatusCode, getResponseData, wasNextCalled } =
-      createMockHttp({
-        companyMember: {
-          id: "mem-1",
-          company_id: "comp-1",
-          user_id: "user-1",
-          workspace_role: "MEMBER",
-          status: "ACTIVE",
-          created_at: new Date(),
-          updated_at: new Date(),
-        },
-      });
+  await t.test(
+    "requireCompanyRole blocks regular MEMBER from ADMIN operations with 403",
+    () => {
+      const guard = requireCompanyRole(["ADMIN"]);
+      const { req, res, next, getStatusCode, getResponseData, wasNextCalled } =
+        createMockHttp({
+          companyMember: {
+            id: "mem-1",
+            company_id: "comp-1",
+            user_id: "user-1",
+            workspace_role: "MEMBER",
+            status: "ACTIVE",
+            created_at: new Date(),
+            updated_at: new Date(),
+          },
+        });
 
-    guard(req, res, next);
+      guard(req, res, next);
 
-    assert.equal(wasNextCalled(), false);
-    assert.equal(getStatusCode(), 403);
-    assert.match(getResponseData().message, /Action requires one of the following roles: ADMIN/);
-  });
+      assert.equal(wasNextCalled(), false);
+      assert.equal(getStatusCode(), 403);
+      assert.match(
+        getResponseData().message,
+        /Action requires one of the following roles: ADMIN/,
+      );
+    },
+  );
 
   await t.test("requireCompanyRole allows ADMIN role through", () => {
     const guard = requireCompanyRole(["ADMIN"]);
@@ -460,80 +504,100 @@ test("Suite 3: Company Lifecycle Operations", async (t) => {
     updated_at: new Date(),
   };
 
-  await t.test("createCompany creates organization and returns 201 with creator as ADMIN", async () => {
-    const originalCreate = CompanyModel.createCompanyWithAdmin;
-    CompanyModel.createCompanyWithAdmin = async () => ({
-      company: mockCompany,
-      member: mockAdminMember,
-    });
+  await t.test(
+    "createCompany creates organization and returns 201 with creator as ADMIN",
+    async () => {
+      const originalCreate = CompanyModel.createCompanyWithAdmin;
+      CompanyModel.createCompanyWithAdmin = async () => ({
+        company: mockCompany,
+        member: mockAdminMember,
+      });
 
-    const { req, res, next, getStatusCode, getResponseData } = createMockHttp({
-      user: { id: "usr-founder-1" },
-      body: {
-        name: "Acme Technologies",
-        website: "https://acme.example.com",
-        country: "NG",
-        industry: "Fintech",
-      },
-    });
+      const { req, res, next, getStatusCode, getResponseData } = createMockHttp(
+        {
+          user: { id: "usr-founder-1" },
+          body: {
+            name: "Acme Technologies",
+            website: "https://acme.example.com",
+            country: "NG",
+            industry: "Fintech",
+          },
+        },
+      );
 
-    await (createCompany as any)(req, res, next);
+      await (createCompany as any)(req, res, next);
 
-    assert.equal(getStatusCode(), 201);
-    assert.equal(getResponseData().message, "Company created successfully");
-    assert.deepEqual(getResponseData().company, mockCompany);
-    assert.equal(getResponseData().member.workspace_role, "ADMIN");
-    assert.equal(getResponseData().member.status, "ACTIVE");
+      assert.equal(getStatusCode(), 201);
+      assert.equal(getResponseData().message, "Company created successfully");
+      assert.deepEqual(getResponseData().company, mockCompany);
+      assert.equal(getResponseData().member.workspace_role, "ADMIN");
+      assert.equal(getResponseData().member.status, "ACTIVE");
 
-    CompanyModel.createCompanyWithAdmin = originalCreate;
-  });
+      CompanyModel.createCompanyWithAdmin = originalCreate;
+    },
+  );
 
-  await t.test("createCompany rejects unauthenticated request with 401", async () => {
-    const { req, res, next, getStatusCode, getResponseData } = createMockHttp({
-      user: undefined,
-      body: { name: "No Auth Inc" },
-    });
+  await t.test(
+    "createCompany rejects unauthenticated request with 401",
+    async () => {
+      const { req, res, next, getStatusCode, getResponseData } = createMockHttp(
+        {
+          user: undefined,
+          body: { name: "No Auth Inc" },
+        },
+      );
 
-    await (createCompany as any)(req, res, next);
+      await (createCompany as any)(req, res, next);
 
-    assert.equal(getStatusCode(), 401);
-    assert.equal(getResponseData().error, "Unauthorized");
-  });
+      assert.equal(getStatusCode(), 401);
+      assert.equal(getResponseData().error, "Unauthorized");
+    },
+  );
 
-  await t.test("getCompanyById returns 200 with company details when found", async () => {
-    const originalFind = CompanyModel.findCompanyById;
-    CompanyModel.findCompanyById = async (id: string) =>
-      id === mockCompany.id ? mockCompany : null;
+  await t.test(
+    "getCompanyById returns 200 with company details when found",
+    async () => {
+      const originalFind = CompanyModel.findCompanyById;
+      CompanyModel.findCompanyById = async (id: string) =>
+        id === mockCompany.id ? mockCompany : null;
 
-    const { req, res, next, getStatusCode, getResponseData } = createMockHttp({
-      user: { id: "usr-founder-1" },
-      params: { id: mockCompany.id },
-    });
+      const { req, res, next, getStatusCode, getResponseData } = createMockHttp(
+        {
+          user: { id: "usr-founder-1" },
+          params: { id: mockCompany.id },
+        },
+      );
 
-    await (getCompanyById as any)(req, res, next);
+      await (getCompanyById as any)(req, res, next);
 
-    assert.equal(getStatusCode(), 200);
-    assert.deepEqual(getResponseData().company, mockCompany);
+      assert.equal(getStatusCode(), 200);
+      assert.deepEqual(getResponseData().company, mockCompany);
 
-    CompanyModel.findCompanyById = originalFind;
-  });
+      CompanyModel.findCompanyById = originalFind;
+    },
+  );
 
-  await t.test("getCompanyById returns 404 when company does not exist", async () => {
-    const originalFind = CompanyModel.findCompanyById;
-    CompanyModel.findCompanyById = async () => null;
+  await t.test(
+    "getCompanyById returns 404 when company does not exist",
+    async () => {
+      const originalFind = CompanyModel.findCompanyById;
+      CompanyModel.findCompanyById = async () => null;
 
-    const { req, res, next, getStatusCode, getResponseData } = createMockHttp({
-      user: { id: "usr-founder-1" },
-      params: { id: "non-existent-id" },
-    });
+      const { req, res, next, getStatusCode, getResponseData } = createMockHttp(
+        {
+          user: { id: "usr-founder-1" },
+          params: { id: "non-existent-id" },
+        },
+      );
 
-    await (getCompanyById as any)(req, res, next);
+      await (getCompanyById as any)(req, res, next);
 
-    assert.equal(getStatusCode(), 404);
-    assert.equal(getResponseData().error, "Not Found");
+      assert.equal(getStatusCode(), 404);
+      assert.equal(getResponseData().error, "Not Found");
 
-    CompanyModel.findCompanyById = originalFind;
-  });
+      CompanyModel.findCompanyById = originalFind;
+    },
+  );
 
   await t.test("updateCompany updates profile and returns 200", async () => {
     const originalUpdate = CompanyModel.updateCompany;
@@ -555,23 +619,28 @@ test("Suite 3: Company Lifecycle Operations", async (t) => {
     CompanyModel.updateCompany = originalUpdate;
   });
 
-  await t.test("updateCompany returns 404 if target company not found", async () => {
-    const originalUpdate = CompanyModel.updateCompany;
-    CompanyModel.updateCompany = async () => null;
+  await t.test(
+    "updateCompany returns 404 if target company not found",
+    async () => {
+      const originalUpdate = CompanyModel.updateCompany;
+      CompanyModel.updateCompany = async () => null;
 
-    const { req, res, next, getStatusCode, getResponseData } = createMockHttp({
-      user: { id: "usr-founder-1" },
-      params: { id: "missing-id" },
-      body: { name: "Updated Name" },
-    });
+      const { req, res, next, getStatusCode, getResponseData } = createMockHttp(
+        {
+          user: { id: "usr-founder-1" },
+          params: { id: "missing-id" },
+          body: { name: "Updated Name" },
+        },
+      );
 
-    await (updateCompany as any)(req, res, next);
+      await (updateCompany as any)(req, res, next);
 
-    assert.equal(getStatusCode(), 404);
-    assert.equal(getResponseData().error, "Not Found");
+      assert.equal(getStatusCode(), 404);
+      assert.equal(getResponseData().error, "Not Found");
 
-    CompanyModel.updateCompany = originalUpdate;
-  });
+      CompanyModel.updateCompany = originalUpdate;
+    },
+  );
 });
 
 test("Suite 3: Member Management Operations", async (t) => {
@@ -589,157 +658,202 @@ test("Suite 3: Member Management Operations", async (t) => {
     updated_at: new Date(),
   };
 
-  await t.test("inviteCompanyMember creates invitation with status INVITED", async () => {
-    const originalInvite = CompanyModel.inviteMember;
-    CompanyModel.inviteMember = async () => mockInvitedMember;
+  await t.test(
+    "inviteCompanyMember creates invitation with status INVITED",
+    async () => {
+      const originalInvite = CompanyModel.inviteMember;
+      CompanyModel.inviteMember = async () => mockInvitedMember;
 
-    const { req, res, next, getStatusCode, getResponseData } = createMockHttp({
-      user: { id: "usr-admin-1" },
-      params: { id: companyId },
-      body: { user_id: "usr-intern-1", workspace_role: "MEMBER" },
-    });
-
-    await (inviteCompanyMember as any)(req, res, next);
-
-    assert.equal(getStatusCode(), 201);
-    assert.equal(getResponseData().message, "Member invited successfully");
-    assert.equal(getResponseData().member.status, "INVITED");
-
-    CompanyModel.inviteMember = originalInvite;
-  });
-
-  await t.test("inviteCompanyMember returns 409 Conflict when user already has active/pending membership", async () => {
-    const originalInvite = CompanyModel.inviteMember;
-    CompanyModel.inviteMember = async () => {
-      throw new AppError(
-        "User is already an active member of this company",
-        409,
+      const { req, res, next, getStatusCode, getResponseData } = createMockHttp(
+        {
+          user: { id: "usr-admin-1" },
+          params: { id: companyId },
+          body: { user_id: "usr-intern-1", workspace_role: "MEMBER" },
+        },
       );
-    };
 
-    const context = createMockHttp({
-      user: { id: "usr-admin-1" },
-      params: { id: companyId },
-      body: { user_id: "usr-intern-1", workspace_role: "MEMBER" },
-    });
+      await (inviteCompanyMember as any)(req, res, next);
 
-    await (inviteCompanyMember as any)(context.req, context.res, context.next);
-    passErrorToHandler(context);
+      assert.equal(getStatusCode(), 201);
+      assert.equal(getResponseData().message, "Member invited successfully");
+      assert.equal(getResponseData().member.status, "INVITED");
 
-    assert.equal(context.getStatusCode(), 409);
-    assert.match(context.getResponseData().error, /already an active member/);
+      CompanyModel.inviteMember = originalInvite;
+    },
+  );
 
-    CompanyModel.inviteMember = originalInvite;
-  });
+  await t.test(
+    "inviteCompanyMember returns 409 Conflict when user already has active/pending membership",
+    async () => {
+      const originalInvite = CompanyModel.inviteMember;
+      CompanyModel.inviteMember = async () => {
+        throw new AppError(
+          "User is already an active member of this company",
+          409,
+        );
+      };
 
-  await t.test("listCompanyMembers returns 200 with list of team members", async () => {
-    const originalList = CompanyModel.listMembers;
-    CompanyModel.listMembers = async () => [mockInvitedMember];
+      const context = createMockHttp({
+        user: { id: "usr-admin-1" },
+        params: { id: companyId },
+        body: { user_id: "usr-intern-1", workspace_role: "MEMBER" },
+      });
 
-    const { req, res, next, getStatusCode, getResponseData } = createMockHttp({
-      user: { id: "usr-admin-1" },
-      params: { id: companyId },
-    });
-
-    await (listCompanyMembers as any)(req, res, next);
-
-    assert.equal(getStatusCode(), 200);
-    assert.equal(getResponseData().members.length, 1);
-    assert.equal(getResponseData().members[0].id, mockInvitedMember.id);
-
-    CompanyModel.listMembers = originalList;
-  });
-
-  await t.test("acceptMembershipInvite transitions status to ACTIVE", async () => {
-    const originalAccept = CompanyModel.acceptInvite;
-    const acceptedMember: CompanyMember = {
-      ...mockInvitedMember,
-      status: "ACTIVE",
-      joined_at: new Date(),
-    };
-    CompanyModel.acceptInvite = async () => acceptedMember;
-
-    const { req, res, next, getStatusCode, getResponseData } = createMockHttp({
-      user: { id: "usr-intern-1" },
-      params: { id: companyId },
-    });
-
-    await (acceptMembershipInvite as any)(req, res, next);
-
-    assert.equal(getStatusCode(), 200);
-    assert.equal(getResponseData().message, "Invitation accepted successfully");
-    assert.equal(getResponseData().member.status, "ACTIVE");
-    assert.ok(getResponseData().member.joined_at);
-
-    CompanyModel.acceptInvite = originalAccept;
-  });
-
-  await t.test("acceptMembershipInvite returns 404 if no invitation exists", async () => {
-    const originalAccept = CompanyModel.acceptInvite;
-    CompanyModel.acceptInvite = async () => null;
-
-    const { req, res, next, getStatusCode, getResponseData } = createMockHttp({
-      user: { id: "usr-stranger-1" },
-      params: { id: companyId },
-    });
-
-    await (acceptMembershipInvite as any)(req, res, next);
-
-    assert.equal(getStatusCode(), 404);
-    assert.equal(getResponseData().error, "Not Found");
-
-    CompanyModel.acceptInvite = originalAccept;
-  });
-
-  await t.test("removeCompanyMember soft-removes member with REMOVED status (PRD §14)", async () => {
-    const originalSoftRemove = CompanyModel.softRemoveMember;
-    const removedMember: CompanyMember = {
-      ...mockInvitedMember,
-      status: "REMOVED",
-      removed_at: new Date(),
-    };
-    CompanyModel.softRemoveMember = async () => removedMember;
-
-    const { req, res, next, getStatusCode, getResponseData } = createMockHttp({
-      user: { id: "usr-admin-1" },
-      params: { id: companyId, memberId: mockInvitedMember.id },
-    });
-
-    await (removeCompanyMember as any)(req, res, next);
-
-    assert.equal(getStatusCode(), 200);
-    assert.match(getResponseData().message, /Member access revoked successfully without deleting records/);
-    assert.equal(getResponseData().member.status, "REMOVED");
-    assert.ok(getResponseData().member.removed_at);
-
-    CompanyModel.softRemoveMember = originalSoftRemove;
-  });
-
-  await t.test("removeCompanyMember blocks removal of the sole active administrator with 400", async () => {
-    const originalSoftRemove = CompanyModel.softRemoveMember;
-    CompanyModel.softRemoveMember = async () => {
-      throw new AppError(
-        "Cannot remove the sole active administrator of a company",
-        400,
+      await (inviteCompanyMember as any)(
+        context.req,
+        context.res,
+        context.next,
       );
-    };
+      passErrorToHandler(context);
 
-    const context = createMockHttp({
-      user: { id: "usr-admin-1" },
-      params: { id: companyId, memberId: "sole-admin-id" },
-    });
+      assert.equal(context.getStatusCode(), 409);
+      assert.match(context.getResponseData().error, /already an active member/);
 
-    await (removeCompanyMember as any)(context.req, context.res, context.next);
-    passErrorToHandler(context);
+      CompanyModel.inviteMember = originalInvite;
+    },
+  );
 
-    assert.equal(context.getStatusCode(), 400);
-    assert.match(
-      context.getResponseData().error,
-      /Cannot remove the sole active administrator/,
-    );
+  await t.test(
+    "listCompanyMembers returns 200 with list of team members",
+    async () => {
+      const originalList = CompanyModel.listMembers;
+      CompanyModel.listMembers = async () => [mockInvitedMember];
 
-    CompanyModel.softRemoveMember = originalSoftRemove;
-  });
+      const { req, res, next, getStatusCode, getResponseData } = createMockHttp(
+        {
+          user: { id: "usr-admin-1" },
+          params: { id: companyId },
+        },
+      );
+
+      await (listCompanyMembers as any)(req, res, next);
+
+      assert.equal(getStatusCode(), 200);
+      assert.equal(getResponseData().members.length, 1);
+      assert.equal(getResponseData().members[0].id, mockInvitedMember.id);
+
+      CompanyModel.listMembers = originalList;
+    },
+  );
+
+  await t.test(
+    "acceptMembershipInvite transitions status to ACTIVE",
+    async () => {
+      const originalAccept = CompanyModel.acceptInvite;
+      const acceptedMember: CompanyMember = {
+        ...mockInvitedMember,
+        status: "ACTIVE",
+        joined_at: new Date(),
+      };
+      CompanyModel.acceptInvite = async () => acceptedMember;
+
+      const { req, res, next, getStatusCode, getResponseData } = createMockHttp(
+        {
+          user: { id: "usr-intern-1" },
+          params: { id: companyId },
+        },
+      );
+
+      await (acceptMembershipInvite as any)(req, res, next);
+
+      assert.equal(getStatusCode(), 200);
+      assert.equal(
+        getResponseData().message,
+        "Invitation accepted successfully",
+      );
+      assert.equal(getResponseData().member.status, "ACTIVE");
+      assert.ok(getResponseData().member.joined_at);
+
+      CompanyModel.acceptInvite = originalAccept;
+    },
+  );
+
+  await t.test(
+    "acceptMembershipInvite returns 404 if no invitation exists",
+    async () => {
+      const originalAccept = CompanyModel.acceptInvite;
+      CompanyModel.acceptInvite = async () => null;
+
+      const { req, res, next, getStatusCode, getResponseData } = createMockHttp(
+        {
+          user: { id: "usr-stranger-1" },
+          params: { id: companyId },
+        },
+      );
+
+      await (acceptMembershipInvite as any)(req, res, next);
+
+      assert.equal(getStatusCode(), 404);
+      assert.equal(getResponseData().error, "Not Found");
+
+      CompanyModel.acceptInvite = originalAccept;
+    },
+  );
+
+  await t.test(
+    "removeCompanyMember soft-removes member with REMOVED status (PRD §14)",
+    async () => {
+      const originalSoftRemove = CompanyModel.softRemoveMember;
+      const removedMember: CompanyMember = {
+        ...mockInvitedMember,
+        status: "REMOVED",
+        removed_at: new Date(),
+      };
+      CompanyModel.softRemoveMember = async () => removedMember;
+
+      const { req, res, next, getStatusCode, getResponseData } = createMockHttp(
+        {
+          user: { id: "usr-admin-1" },
+          params: { id: companyId, memberId: mockInvitedMember.id },
+        },
+      );
+
+      await (removeCompanyMember as any)(req, res, next);
+
+      assert.equal(getStatusCode(), 200);
+      assert.match(
+        getResponseData().message,
+        /Member access revoked successfully without deleting records/,
+      );
+      assert.equal(getResponseData().member.status, "REMOVED");
+      assert.ok(getResponseData().member.removed_at);
+
+      CompanyModel.softRemoveMember = originalSoftRemove;
+    },
+  );
+
+  await t.test(
+    "removeCompanyMember blocks removal of the sole active administrator with 400",
+    async () => {
+      const originalSoftRemove = CompanyModel.softRemoveMember;
+      CompanyModel.softRemoveMember = async () => {
+        throw new AppError(
+          "Cannot remove the sole active administrator of a company",
+          400,
+        );
+      };
+
+      const context = createMockHttp({
+        user: { id: "usr-admin-1" },
+        params: { id: companyId, memberId: "sole-admin-id" },
+      });
+
+      await (removeCompanyMember as any)(
+        context.req,
+        context.res,
+        context.next,
+      );
+      passErrorToHandler(context);
+
+      assert.equal(context.getStatusCode(), 400);
+      assert.match(
+        context.getResponseData().error,
+        /Cannot remove the sole active administrator/,
+      );
+
+      CompanyModel.softRemoveMember = originalSoftRemove;
+    },
+  );
 });
 
 // ============================================================================
@@ -765,90 +879,111 @@ test("Suite 4: Verification Submission Workflow (Employer)", async (t) => {
     decided_at: null,
   };
 
-  await t.test("submitCompanyVerification submits documents and returns 201 with PENDING_REVIEW", async () => {
-    const originalSubmit = CompanyModel.submitVerification;
-    CompanyModel.submitVerification = async () => mockVerification;
+  await t.test(
+    "submitCompanyVerification submits documents and returns 201 with PENDING_REVIEW",
+    async () => {
+      const originalSubmit = CompanyModel.submitVerification;
+      CompanyModel.submitVerification = async () => mockVerification;
 
-    const { req, res, next, getStatusCode, getResponseData } = createMockHttp({
-      user: { id: "usr-founder-1", role: "USER" },
-      params: { id: companyId },
-      body: {
-        registration_number: "RC-998877",
-        documents: [
-          {
-            title: "Certificate of Incorporation",
-            url: "https://storage.internflare.com/docs/cert.pdf",
+      const { req, res, next, getStatusCode, getResponseData } = createMockHttp(
+        {
+          user: { id: "usr-founder-1", role: "USER" },
+          params: { id: companyId },
+          body: {
+            registration_number: "RC-998877",
+            documents: [
+              {
+                title: "Certificate of Incorporation",
+                url: "https://storage.internflare.com/docs/cert.pdf",
+              },
+            ],
           },
-        ],
-      },
-    });
+        },
+      );
 
-    await (submitCompanyVerification as any)(req, res, next);
+      await (submitCompanyVerification as any)(req, res, next);
 
-    assert.equal(getStatusCode(), 201);
-    assert.equal(getResponseData().message, "Verification documents submitted successfully");
-    assert.equal(getResponseData().verification.status, "PENDING_REVIEW");
+      assert.equal(getStatusCode(), 201);
+      assert.equal(
+        getResponseData().message,
+        "Verification documents submitted successfully",
+      );
+      assert.equal(getResponseData().verification.status, "PENDING_REVIEW");
 
-    CompanyModel.submitVerification = originalSubmit;
-  });
+      CompanyModel.submitVerification = originalSubmit;
+    },
+  );
 
-  await t.test("submitCompanyVerification rejects unauthenticated requests with 401", async () => {
-    const { req, res, next, getStatusCode, getResponseData } = createMockHttp({
-      user: undefined,
-      params: { id: companyId },
-      body: { documents: [] },
-    });
+  await t.test(
+    "submitCompanyVerification rejects unauthenticated requests with 401",
+    async () => {
+      const { req, res, next, getStatusCode, getResponseData } = createMockHttp(
+        {
+          user: undefined,
+          params: { id: companyId },
+          body: { documents: [] },
+        },
+      );
 
-    await (submitCompanyVerification as any)(req, res, next);
+      await (submitCompanyVerification as any)(req, res, next);
 
-    assert.equal(getStatusCode(), 401);
-    assert.equal(getResponseData().error, "Unauthorized");
-  });
+      assert.equal(getStatusCode(), 401);
+      assert.equal(getResponseData().error, "Unauthorized");
+    },
+  );
 
-  await t.test("submitCompanyVerification returns 404 if company does not exist", async () => {
-    const originalSubmit = CompanyModel.submitVerification;
-    CompanyModel.submitVerification = async () => {
-      throw new AppError("Company not found", 404);
-    };
+  await t.test(
+    "submitCompanyVerification returns 404 if company does not exist",
+    async () => {
+      const originalSubmit = CompanyModel.submitVerification;
+      CompanyModel.submitVerification = async () => {
+        throw new AppError("Company not found", 404);
+      };
 
-    const context = createMockHttp({
-      user: { id: "usr-founder-1" },
-      params: { id: "missing-company-id" },
-      body: {
-        documents: [{ title: "Doc", url: "https://example.com/doc.pdf" }],
-      },
-    });
+      const context = createMockHttp({
+        user: { id: "usr-founder-1" },
+        params: { id: "missing-company-id" },
+        body: {
+          documents: [{ title: "Doc", url: "https://example.com/doc.pdf" }],
+        },
+      });
 
-    await (submitCompanyVerification as any)(
-      context.req,
-      context.res,
-      context.next,
-    );
-    passErrorToHandler(context);
+      await (submitCompanyVerification as any)(
+        context.req,
+        context.res,
+        context.next,
+      );
+      passErrorToHandler(context);
 
-    assert.equal(context.getStatusCode(), 404);
-    assert.equal(context.getResponseData().error, "Company not found");
+      assert.equal(context.getStatusCode(), 404);
+      assert.equal(context.getResponseData().error, "Company not found");
 
-    CompanyModel.submitVerification = originalSubmit;
-  });
+      CompanyModel.submitVerification = originalSubmit;
+    },
+  );
 
-  await t.test("listCompanyVerifications returns 200 with submission history", async () => {
-    const originalList = CompanyModel.listCompanyVerifications;
-    CompanyModel.listCompanyVerifications = async () => [mockVerification];
+  await t.test(
+    "listCompanyVerifications returns 200 with submission history",
+    async () => {
+      const originalList = CompanyModel.listCompanyVerifications;
+      CompanyModel.listCompanyVerifications = async () => [mockVerification];
 
-    const { req, res, next, getStatusCode, getResponseData } = createMockHttp({
-      user: { id: "usr-founder-1" },
-      params: { id: companyId },
-    });
+      const { req, res, next, getStatusCode, getResponseData } = createMockHttp(
+        {
+          user: { id: "usr-founder-1" },
+          params: { id: companyId },
+        },
+      );
 
-    await (listCompanyVerifications as any)(req, res, next);
+      await (listCompanyVerifications as any)(req, res, next);
 
-    assert.equal(getStatusCode(), 200);
-    assert.equal(getResponseData().verifications.length, 1);
-    assert.equal(getResponseData().verifications[0].id, mockVerification.id);
+      assert.equal(getStatusCode(), 200);
+      assert.equal(getResponseData().verifications.length, 1);
+      assert.equal(getResponseData().verifications[0].id, mockVerification.id);
 
-    CompanyModel.listCompanyVerifications = originalList;
-  });
+      CompanyModel.listCompanyVerifications = originalList;
+    },
+  );
 });
 
 test("Suite 4: Admin Review Decisions & Audit Event Logging", async (t) => {
@@ -875,266 +1010,319 @@ test("Suite 4: Admin Review Decisions & Audit Event Logging", async (t) => {
     decided_at: new Date(),
   };
 
-  await t.test("requirePlatformAdmin blocks non-admin users with 403 Forbidden", () => {
-    const { req, res, next, getStatusCode, getResponseData, wasNextCalled } =
-      createMockHttp({
-        user: { id: "usr-regular-user", role: "USER" },
+  await t.test(
+    "requirePlatformAdmin blocks non-admin users with 403 Forbidden",
+    () => {
+      const { req, res, next, getStatusCode, getResponseData, wasNextCalled } =
+        createMockHttp({
+          user: { id: "usr-regular-user", role: "USER" },
+        });
+
+      requirePlatformAdmin(req, res, next);
+
+      assert.equal(wasNextCalled(), false);
+      assert.equal(getStatusCode(), 403);
+      assert.match(
+        getResponseData().message,
+        /Platform administrator access required/,
+      );
+    },
+  );
+
+  await t.test(
+    "requirePlatformAdmin allows ADMIN and SUPER_ADMIN users through",
+    () => {
+      const { req, res, next, wasNextCalled } = createMockHttp({
+        user: { id: "usr-superadmin", role: "SUPER_ADMIN" },
       });
 
-    requirePlatformAdmin(req, res, next);
+      requirePlatformAdmin(req, res, next);
 
-    assert.equal(wasNextCalled(), false);
-    assert.equal(getStatusCode(), 403);
-    assert.match(getResponseData().message, /Platform administrator access required/);
-  });
+      assert.equal(wasNextCalled(), true);
+    },
+  );
 
-  await t.test("requirePlatformAdmin allows ADMIN and SUPER_ADMIN users through", () => {
-    const { req, res, next, wasNextCalled } = createMockHttp({
-      user: { id: "usr-superadmin", role: "SUPER_ADMIN" },
-    });
+  await t.test(
+    "listPendingVerifications returns 200 with list of pending requests",
+    async () => {
+      const originalList = CompanyModel.listPendingVerifications;
+      CompanyModel.listPendingVerifications = async () => [
+        {
+          ...mockApprovedVerification,
+          status: "PENDING_REVIEW",
+          company_name: "Acme Technologies",
+          company_country: "NG",
+        },
+      ];
 
-    requirePlatformAdmin(req, res, next);
-
-    assert.equal(wasNextCalled(), true);
-  });
-
-  await t.test("listPendingVerifications returns 200 with list of pending requests", async () => {
-    const originalList = CompanyModel.listPendingVerifications;
-    CompanyModel.listPendingVerifications = async () => [
-      {
-        ...mockApprovedVerification,
-        status: "PENDING_REVIEW",
-        company_name: "Acme Technologies",
-        company_country: "NG",
-      },
-    ];
-
-    const { req, res, next, getStatusCode, getResponseData } = createMockHttp({
-      user: { id: "usr-admin", role: "ADMIN" },
-    });
-
-    await (listPendingVerifications as any)(req, res, next);
-
-    assert.equal(getStatusCode(), 200);
-    assert.equal(getResponseData().pending_verifications.length, 1);
-    assert.equal(getResponseData().pending_verifications[0].company_name, "Acme Technologies");
-
-    CompanyModel.listPendingVerifications = originalList;
-  });
-
-  await t.test("decideVerification records approval decision and returns 200", async () => {
-    const originalDecide = CompanyModel.decideVerification;
-    CompanyModel.decideVerification = async () => ({
-      verification: mockApprovedVerification,
-      company: mockCompany,
-    });
-
-    const { req, res, next, getStatusCode, getResponseData } = createMockHttp({
-      user: { id: "usr-platform-admin", role: "ADMIN" },
-      params: { id: verificationId },
-      body: {
-        status: "APPROVED",
-        review_notes: "CAC verified and registration valid",
-      },
-    });
-
-    await (decideVerification as any)(req, res, next);
-
-    assert.equal(getStatusCode(), 200);
-    assert.match(getResponseData().message, /Verification decision recorded: APPROVED/);
-    assert.equal(getResponseData().verification.status, "APPROVED");
-    assert.equal(getResponseData().company.verification_status, "VERIFIED");
-
-    CompanyModel.decideVerification = originalDecide;
-  });
-
-  await t.test("decideVerification returns 404 when verification does not exist", async () => {
-    const originalDecide = CompanyModel.decideVerification;
-    CompanyModel.decideVerification = async () => {
-      throw new AppError("Verification record not found", 404);
-    };
-
-    const context = createMockHttp({
-      user: { id: "usr-platform-admin", role: "ADMIN" },
-      params: { id: "non-existent-id" },
-      body: { status: "REJECTED" },
-    });
-
-    await (decideVerification as any)(
-      context.req,
-      context.res,
-      context.next,
-    );
-    passErrorToHandler(context);
-
-    assert.equal(context.getStatusCode(), 404);
-    assert.equal(
-      context.getResponseData().error,
-      "Verification record not found",
-    );
-
-    CompanyModel.decideVerification = originalDecide;
-  });
-
-  await t.test("decideVerification returns 409 Conflict when verification was already decided", async () => {
-    const originalDecide = CompanyModel.decideVerification;
-    CompanyModel.decideVerification = async () => {
-      throw new AppError(
-        "Verification has already been decided: current status is APPROVED",
-        409,
+      const { req, res, next, getStatusCode, getResponseData } = createMockHttp(
+        {
+          user: { id: "usr-admin", role: "ADMIN" },
+        },
       );
-    };
 
-    const context = createMockHttp({
-      user: { id: "usr-platform-admin", role: "ADMIN" },
-      params: { id: verificationId },
-      body: { status: "REJECTED" },
-    });
+      await (listPendingVerifications as any)(req, res, next);
 
-    await (decideVerification as any)(
-      context.req,
-      context.res,
-      context.next,
-    );
-    passErrorToHandler(context);
+      assert.equal(getStatusCode(), 200);
+      assert.equal(getResponseData().pending_verifications.length, 1);
+      assert.equal(
+        getResponseData().pending_verifications[0].company_name,
+        "Acme Technologies",
+      );
 
-    assert.equal(context.getStatusCode(), 409);
-    assert.match(context.getResponseData().error, /already been decided/);
+      CompanyModel.listPendingVerifications = originalList;
+    },
+  );
 
-    CompanyModel.decideVerification = originalDecide;
-  });
+  await t.test(
+    "decideVerification records approval decision and returns 200",
+    async () => {
+      const originalDecide = CompanyModel.decideVerification;
+      CompanyModel.decideVerification = async () => ({
+        verification: mockApprovedVerification,
+        company: mockCompany,
+      });
+
+      const { req, res, next, getStatusCode, getResponseData } = createMockHttp(
+        {
+          user: { id: "usr-platform-admin", role: "ADMIN" },
+          params: { id: verificationId },
+          body: {
+            status: "APPROVED",
+            review_notes: "CAC verified and registration valid",
+          },
+        },
+      );
+
+      await (decideVerification as any)(req, res, next);
+
+      assert.equal(getStatusCode(), 200);
+      assert.match(
+        getResponseData().message,
+        /Verification decision recorded: APPROVED/,
+      );
+      assert.equal(getResponseData().verification.status, "APPROVED");
+      assert.equal(getResponseData().company.verification_status, "VERIFIED");
+
+      CompanyModel.decideVerification = originalDecide;
+    },
+  );
+
+  await t.test(
+    "decideVerification returns 404 when verification does not exist",
+    async () => {
+      const originalDecide = CompanyModel.decideVerification;
+      CompanyModel.decideVerification = async () => {
+        throw new AppError("Verification record not found", 404);
+      };
+
+      const context = createMockHttp({
+        user: { id: "usr-platform-admin", role: "ADMIN" },
+        params: { id: "non-existent-id" },
+        body: { status: "REJECTED" },
+      });
+
+      await (decideVerification as any)(context.req, context.res, context.next);
+      passErrorToHandler(context);
+
+      assert.equal(context.getStatusCode(), 404);
+      assert.equal(
+        context.getResponseData().error,
+        "Verification record not found",
+      );
+
+      CompanyModel.decideVerification = originalDecide;
+    },
+  );
+
+  await t.test(
+    "decideVerification returns 409 Conflict when verification was already decided",
+    async () => {
+      const originalDecide = CompanyModel.decideVerification;
+      CompanyModel.decideVerification = async () => {
+        throw new AppError(
+          "Verification has already been decided: current status is APPROVED",
+          409,
+        );
+      };
+
+      const context = createMockHttp({
+        user: { id: "usr-platform-admin", role: "ADMIN" },
+        params: { id: verificationId },
+        body: { status: "REJECTED" },
+      });
+
+      await (decideVerification as any)(context.req, context.res, context.next);
+      passErrorToHandler(context);
+
+      assert.equal(context.getStatusCode(), 409);
+      assert.match(context.getResponseData().error, /already been decided/);
+
+      CompanyModel.decideVerification = originalDecide;
+    },
+  );
 });
 
 test("Suite 4: Feature Gating Middleware (requireCompanyVerified)", async (t) => {
   const companyId = "c0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11";
 
-  await t.test("requireCompanyVerified returns 400 if no company ID is present", async () => {
-    const { req, res, next, getStatusCode, getResponseData, wasNextCalled } =
-      createMockHttp({});
+  await t.test(
+    "requireCompanyVerified returns 400 if no company ID is present",
+    async () => {
+      const { req, res, next, getStatusCode, getResponseData, wasNextCalled } =
+        createMockHttp({});
 
-    await (requireCompanyVerified as any)(req, res, next);
+      await (requireCompanyVerified as any)(req, res, next);
 
-    assert.equal(wasNextCalled(), false);
-    assert.equal(getStatusCode(), 400);
-    assert.equal(getResponseData().error, "Bad Request");
-  });
+      assert.equal(wasNextCalled(), false);
+      assert.equal(getStatusCode(), 400);
+      assert.equal(getResponseData().error, "Bad Request");
+    },
+  );
 
-  await t.test("requireCompanyVerified returns 404 if company is not found", async () => {
-    const originalFind = CompanyModel.findCompanyById;
-    CompanyModel.findCompanyById = async () => null;
+  await t.test(
+    "requireCompanyVerified returns 404 if company is not found",
+    async () => {
+      const originalFind = CompanyModel.findCompanyById;
+      CompanyModel.findCompanyById = async () => null;
 
-    const { req, res, next, getStatusCode, getResponseData, wasNextCalled } =
-      createMockHttp({ params: { id: companyId } });
+      const { req, res, next, getStatusCode, getResponseData, wasNextCalled } =
+        createMockHttp({ params: { id: companyId } });
 
-    await (requireCompanyVerified as any)(req, res, next);
+      await (requireCompanyVerified as any)(req, res, next);
 
-    assert.equal(wasNextCalled(), false);
-    assert.equal(getStatusCode(), 404);
-    assert.equal(getResponseData().error, "Not Found");
+      assert.equal(wasNextCalled(), false);
+      assert.equal(getStatusCode(), 404);
+      assert.equal(getResponseData().error, "Not Found");
 
-    CompanyModel.findCompanyById = originalFind;
-  });
+      CompanyModel.findCompanyById = originalFind;
+    },
+  );
 
-  await t.test("requireCompanyVerified blocks UNVERIFIED company with 403 Forbidden", async () => {
-    const originalFind = CompanyModel.findCompanyById;
-    CompanyModel.findCompanyById = async () =>
-      ({
-        id: companyId,
-        name: "Unverified Co",
-        verification_status: "UNVERIFIED",
-      }) as Company;
+  await t.test(
+    "requireCompanyVerified blocks UNVERIFIED company with 403 Forbidden",
+    async () => {
+      const originalFind = CompanyModel.findCompanyById;
+      CompanyModel.findCompanyById = async () =>
+        ({
+          id: companyId,
+          name: "Unverified Co",
+          verification_status: "UNVERIFIED",
+        }) as Company;
 
-    const { req, res, next, getStatusCode, getResponseData, wasNextCalled } =
-      createMockHttp({ params: { id: companyId } });
+      const { req, res, next, getStatusCode, getResponseData, wasNextCalled } =
+        createMockHttp({ params: { id: companyId } });
 
-    await (requireCompanyVerified as any)(req, res, next);
+      await (requireCompanyVerified as any)(req, res, next);
 
-    assert.equal(wasNextCalled(), false);
-    assert.equal(getStatusCode(), 403);
-    assert.match(getResponseData().message, /Company verification required/);
+      assert.equal(wasNextCalled(), false);
+      assert.equal(getStatusCode(), 403);
+      assert.match(getResponseData().message, /Company verification required/);
 
-    CompanyModel.findCompanyById = originalFind;
-  });
+      CompanyModel.findCompanyById = originalFind;
+    },
+  );
 
-  await t.test("requireCompanyVerified blocks PENDING_REVIEW company with 403 Forbidden", async () => {
-    const originalFind = CompanyModel.findCompanyById;
-    CompanyModel.findCompanyById = async () =>
-      ({
-        id: companyId,
-        name: "Pending Co",
-        verification_status: "PENDING_REVIEW",
-      }) as Company;
+  await t.test(
+    "requireCompanyVerified blocks PENDING_REVIEW company with 403 Forbidden",
+    async () => {
+      const originalFind = CompanyModel.findCompanyById;
+      CompanyModel.findCompanyById = async () =>
+        ({
+          id: companyId,
+          name: "Pending Co",
+          verification_status: "PENDING_REVIEW",
+        }) as Company;
 
-    const { req, res, next, getStatusCode, getResponseData, wasNextCalled } =
-      createMockHttp({ params: { id: companyId } });
+      const { req, res, next, getStatusCode, getResponseData, wasNextCalled } =
+        createMockHttp({ params: { id: companyId } });
 
-    await (requireCompanyVerified as any)(req, res, next);
+      await (requireCompanyVerified as any)(req, res, next);
 
-    assert.equal(wasNextCalled(), false);
-    assert.equal(getStatusCode(), 403);
-    assert.match(getResponseData().message, /Company verification required/);
+      assert.equal(wasNextCalled(), false);
+      assert.equal(getStatusCode(), 403);
+      assert.match(getResponseData().message, /Company verification required/);
 
-    CompanyModel.findCompanyById = originalFind;
-  });
+      CompanyModel.findCompanyById = originalFind;
+    },
+  );
 
-  await t.test("requireCompanyVerified allows VERIFIED company through", async () => {
-    const originalFind = CompanyModel.findCompanyById;
-    CompanyModel.findCompanyById = async () =>
-      ({
-        id: companyId,
-        name: "Verified Co",
-        verification_status: "VERIFIED",
-      }) as Company;
+  await t.test(
+    "requireCompanyVerified allows VERIFIED company through",
+    async () => {
+      const originalFind = CompanyModel.findCompanyById;
+      CompanyModel.findCompanyById = async () =>
+        ({
+          id: companyId,
+          name: "Verified Co",
+          verification_status: "VERIFIED",
+        }) as Company;
 
-    const { req, res, next, wasNextCalled } = createMockHttp({
-      params: { id: companyId },
-    });
+      const { req, res, next, wasNextCalled } = createMockHttp({
+        params: { id: companyId },
+      });
 
-    await (requireCompanyVerified as any)(req, res, next);
+      await (requireCompanyVerified as any)(req, res, next);
 
-    assert.equal(wasNextCalled(), true);
+      assert.equal(wasNextCalled(), true);
 
-    CompanyModel.findCompanyById = originalFind;
-  });
+      CompanyModel.findCompanyById = originalFind;
+    },
+  );
 });
 
 // ============================================================================
 // SUITE 5: Internal Cross-Service Integration & Remote RPC
 // ============================================================================
 test("Suite 5: Cross-Service Authentication & Internal Security", async (t) => {
-  await t.test("requireInternalServiceAuth blocks requests without x-internal-service-key with 401", () => {
-    const { req, res, next, getStatusCode, getResponseData, wasNextCalled } =
-      createMockHttp({});
+  await t.test(
+    "requireInternalServiceAuth blocks requests without x-internal-service-key with 401",
+    () => {
+      const { req, res, next, getStatusCode, getResponseData, wasNextCalled } =
+        createMockHttp({});
 
-    requireInternalServiceAuth(req, res, next);
+      requireInternalServiceAuth(req, res, next);
 
-    assert.equal(wasNextCalled(), false);
-    assert.equal(getStatusCode(), 401);
-    assert.match(getResponseData().message, /Missing x-internal-service-key header/);
-  });
+      assert.equal(wasNextCalled(), false);
+      assert.equal(getStatusCode(), 401);
+      assert.match(
+        getResponseData().message,
+        /Missing x-internal-service-key header/,
+      );
+    },
+  );
 
-  await t.test("requireInternalServiceAuth blocks requests with invalid key with 401", () => {
-    const { req, res, next, getStatusCode, getResponseData, wasNextCalled } =
-      createMockHttp({
-        headers: { "x-internal-service-key": "wrong-key" },
+  await t.test(
+    "requireInternalServiceAuth blocks requests with invalid key with 401",
+    () => {
+      const { req, res, next, getStatusCode, getResponseData, wasNextCalled } =
+        createMockHttp({
+          headers: { "x-internal-service-key": "wrong-key" },
+        });
+
+      requireInternalServiceAuth(req, res, next);
+
+      assert.equal(wasNextCalled(), false);
+      assert.equal(getStatusCode(), 401);
+      assert.match(
+        getResponseData().message,
+        /Invalid internal service credentials/,
+      );
+    },
+  );
+
+  await t.test(
+    "requireInternalServiceAuth allows requests with valid key through",
+    () => {
+      const { req, res, next, wasNextCalled } = createMockHttp({
+        headers: { "x-internal-service-key": config.internalServiceSecret },
       });
 
-    requireInternalServiceAuth(req, res, next);
+      requireInternalServiceAuth(req, res, next);
 
-    assert.equal(wasNextCalled(), false);
-    assert.equal(getStatusCode(), 401);
-    assert.match(getResponseData().message, /Invalid internal service credentials/);
-  });
-
-  await t.test("requireInternalServiceAuth allows requests with valid key through", () => {
-    const { req, res, next, wasNextCalled } = createMockHttp({
-      headers: { "x-internal-service-key": config.internalServiceSecret },
-    });
-
-    requireInternalServiceAuth(req, res, next);
-
-    assert.equal(wasNextCalled(), true);
-  });
+      assert.equal(wasNextCalled(), true);
+    },
+  );
 });
 
 test("Suite 5: Cross-Service Permissions & Access Inspection", async (t) => {
@@ -1151,138 +1339,168 @@ test("Suite 5: Cross-Service Permissions & Access Inspection", async (t) => {
     updated_at: new Date(),
   };
 
-  await t.test("getCompanyAccess returns 404 when company does not exist", async () => {
-    const originalFindCompany = CompanyModel.findCompanyById;
-    CompanyModel.findCompanyById = async () => null;
+  await t.test(
+    "getCompanyAccess returns 404 when company does not exist",
+    async () => {
+      const originalFindCompany = CompanyModel.findCompanyById;
+      CompanyModel.findCompanyById = async () => null;
 
-    const { req, res, next, getStatusCode, getResponseData } = createMockHttp({
-      params: { id: "missing-id", userId },
-    });
+      const { req, res, next, getStatusCode, getResponseData } = createMockHttp(
+        {
+          params: { id: "missing-id", userId },
+        },
+      );
 
-    await (getCompanyAccess as any)(req, res, next);
+      await (getCompanyAccess as any)(req, res, next);
 
-    assert.equal(getStatusCode(), 404);
-    assert.equal(getResponseData().error, "Not Found");
+      assert.equal(getStatusCode(), 404);
+      assert.equal(getResponseData().error, "Not Found");
 
-    CompanyModel.findCompanyById = originalFindCompany;
-  });
+      CompanyModel.findCompanyById = originalFindCompany;
+    },
+  );
 
-  await t.test("getCompanyAccess returns has_access: true for active member", async () => {
-    const originalFindCompany = CompanyModel.findCompanyById;
-    const originalFindMember = CompanyModel.findMember;
+  await t.test(
+    "getCompanyAccess returns has_access: true for active member",
+    async () => {
+      const originalFindCompany = CompanyModel.findCompanyById;
+      const originalFindMember = CompanyModel.findMember;
 
-    CompanyModel.findCompanyById = async () => mockVerifiedCompany;
-    CompanyModel.findMember = async () =>
-      ({
-        id: "mem-active",
-        company_id: companyId,
-        user_id: userId,
-        workspace_role: "ADMIN",
-        status: "ACTIVE",
-        joined_at: new Date(),
-      }) as CompanyMember;
+      CompanyModel.findCompanyById = async () => mockVerifiedCompany;
+      CompanyModel.findMember = async () =>
+        ({
+          id: "mem-active",
+          company_id: companyId,
+          user_id: userId,
+          workspace_role: "ADMIN",
+          status: "ACTIVE",
+          joined_at: new Date(),
+        }) as CompanyMember;
 
-    const { req, res, next, getStatusCode, getResponseData } = createMockHttp({
-      params: { id: companyId, userId },
-    });
+      const { req, res, next, getStatusCode, getResponseData } = createMockHttp(
+        {
+          params: { id: companyId, userId },
+        },
+      );
 
-    await (getCompanyAccess as any)(req, res, next);
+      await (getCompanyAccess as any)(req, res, next);
 
-    assert.equal(getStatusCode(), 200);
-    assert.equal(getResponseData().has_access, true);
-    assert.equal(getResponseData().company.is_verified, true);
-    assert.equal(getResponseData().membership.status, "ACTIVE");
-    assert.equal(getResponseData().membership.workspace_role, "ADMIN");
+      assert.equal(getStatusCode(), 200);
+      assert.equal(getResponseData().has_access, true);
+      assert.equal(getResponseData().company.is_verified, true);
+      assert.equal(getResponseData().membership.status, "ACTIVE");
+      assert.equal(getResponseData().membership.workspace_role, "ADMIN");
 
-    CompanyModel.findCompanyById = originalFindCompany;
-    CompanyModel.findMember = originalFindMember;
-  });
+      CompanyModel.findCompanyById = originalFindCompany;
+      CompanyModel.findMember = originalFindMember;
+    },
+  );
 
-  await t.test("getCompanyAccess returns has_access: false for REMOVED member (PRD §14)", async () => {
-    const originalFindCompany = CompanyModel.findCompanyById;
-    const originalFindMember = CompanyModel.findMember;
+  await t.test(
+    "getCompanyAccess returns has_access: false for REMOVED member (PRD §14)",
+    async () => {
+      const originalFindCompany = CompanyModel.findCompanyById;
+      const originalFindMember = CompanyModel.findMember;
 
-    CompanyModel.findCompanyById = async () => mockVerifiedCompany;
-    CompanyModel.findMember = async () =>
-      ({
-        id: "mem-removed",
-        company_id: companyId,
-        user_id: userId,
-        workspace_role: "MEMBER",
-        status: "REMOVED",
-        removed_at: new Date(),
-      }) as CompanyMember;
+      CompanyModel.findCompanyById = async () => mockVerifiedCompany;
+      CompanyModel.findMember = async () =>
+        ({
+          id: "mem-removed",
+          company_id: companyId,
+          user_id: userId,
+          workspace_role: "MEMBER",
+          status: "REMOVED",
+          removed_at: new Date(),
+        }) as CompanyMember;
 
-    const { req, res, next, getStatusCode, getResponseData } = createMockHttp({
-      params: { id: companyId, userId },
-    });
+      const { req, res, next, getStatusCode, getResponseData } = createMockHttp(
+        {
+          params: { id: companyId, userId },
+        },
+      );
 
-    await (getCompanyAccess as any)(req, res, next);
+      await (getCompanyAccess as any)(req, res, next);
 
-    assert.equal(getStatusCode(), 200);
-    assert.equal(getResponseData().has_access, false);
-    assert.equal(getResponseData().membership.status, "REMOVED");
+      assert.equal(getStatusCode(), 200);
+      assert.equal(getResponseData().has_access, false);
+      assert.equal(getResponseData().membership.status, "REMOVED");
 
-    CompanyModel.findCompanyById = originalFindCompany;
-    CompanyModel.findMember = originalFindMember;
-  });
+      CompanyModel.findCompanyById = originalFindCompany;
+      CompanyModel.findMember = originalFindMember;
+    },
+  );
 
-  await t.test("getCompanyAccess returns has_access: false and membership: null for non-member", async () => {
-    const originalFindCompany = CompanyModel.findCompanyById;
-    const originalFindMember = CompanyModel.findMember;
+  await t.test(
+    "getCompanyAccess returns has_access: false and membership: null for non-member",
+    async () => {
+      const originalFindCompany = CompanyModel.findCompanyById;
+      const originalFindMember = CompanyModel.findMember;
 
-    CompanyModel.findCompanyById = async () => mockVerifiedCompany;
-    CompanyModel.findMember = async () => null;
+      CompanyModel.findCompanyById = async () => mockVerifiedCompany;
+      CompanyModel.findMember = async () => null;
 
-    const { req, res, next, getStatusCode, getResponseData } = createMockHttp({
-      params: { id: companyId, userId },
-    });
+      const { req, res, next, getStatusCode, getResponseData } = createMockHttp(
+        {
+          params: { id: companyId, userId },
+        },
+      );
 
-    await (getCompanyAccess as any)(req, res, next);
+      await (getCompanyAccess as any)(req, res, next);
 
-    assert.equal(getStatusCode(), 200);
-    assert.equal(getResponseData().has_access, false);
-    assert.equal(getResponseData().membership, null);
+      assert.equal(getStatusCode(), 200);
+      assert.equal(getResponseData().has_access, false);
+      assert.equal(getResponseData().membership, null);
 
-    CompanyModel.findCompanyById = originalFindCompany;
-    CompanyModel.findMember = originalFindMember;
-  });
+      CompanyModel.findCompanyById = originalFindCompany;
+      CompanyModel.findMember = originalFindMember;
+    },
+  );
 
-  await t.test("getCompanyVerificationStatus returns is_verified true for VERIFIED company", async () => {
-    const originalFindCompany = CompanyModel.findCompanyById;
-    CompanyModel.findCompanyById = async () => mockVerifiedCompany;
+  await t.test(
+    "getCompanyVerificationStatus returns is_verified true for VERIFIED company",
+    async () => {
+      const originalFindCompany = CompanyModel.findCompanyById;
+      CompanyModel.findCompanyById = async () => mockVerifiedCompany;
 
-    const { req, res, next, getStatusCode, getResponseData } = createMockHttp({
-      params: { id: companyId },
-    });
+      const { req, res, next, getStatusCode, getResponseData } = createMockHttp(
+        {
+          params: { id: companyId },
+        },
+      );
 
-    await (getCompanyVerificationStatus as any)(req, res, next);
+      await (getCompanyVerificationStatus as any)(req, res, next);
 
-    assert.equal(getStatusCode(), 200);
-    assert.equal(getResponseData().is_verified, true);
-    assert.equal(getResponseData().verification_status, "VERIFIED");
+      assert.equal(getStatusCode(), 200);
+      assert.equal(getResponseData().is_verified, true);
+      assert.equal(getResponseData().verification_status, "VERIFIED");
 
-    CompanyModel.findCompanyById = originalFindCompany;
-  });
+      CompanyModel.findCompanyById = originalFindCompany;
+    },
+  );
 
-  await t.test("getCompanyVerificationStatus returns is_verified false for UNVERIFIED company", async () => {
-    const originalFindCompany = CompanyModel.findCompanyById;
-    CompanyModel.findCompanyById = async () =>
-      ({
-        ...mockVerifiedCompany,
-        verification_status: "UNVERIFIED",
-      }) as Company;
+  await t.test(
+    "getCompanyVerificationStatus returns is_verified false for UNVERIFIED company",
+    async () => {
+      const originalFindCompany = CompanyModel.findCompanyById;
+      CompanyModel.findCompanyById = async () =>
+        ({
+          ...mockVerifiedCompany,
+          verification_status: "UNVERIFIED",
+        }) as Company;
 
-    const { req, res, next, getStatusCode, getResponseData } = createMockHttp({
-      params: { id: companyId },
-    });
+      const { req, res, next, getStatusCode, getResponseData } = createMockHttp(
+        {
+          params: { id: companyId },
+        },
+      );
 
-    await (getCompanyVerificationStatus as any)(req, res, next);
+      await (getCompanyVerificationStatus as any)(req, res, next);
 
-    assert.equal(getStatusCode(), 200);
-    assert.equal(getResponseData().is_verified, false);
-    assert.equal(getResponseData().verification_status, "UNVERIFIED");
+      assert.equal(getStatusCode(), 200);
+      assert.equal(getResponseData().is_verified, false);
+      assert.equal(getResponseData().verification_status, "UNVERIFIED");
 
-    CompanyModel.findCompanyById = originalFindCompany;
-  });
+      CompanyModel.findCompanyById = originalFindCompany;
+    },
+  );
 });

@@ -147,6 +147,42 @@ export const openApiDocument = {
           },
         },
       },
+      EmailVerificationRequestedEvent: {
+        type: "object",
+        description:
+          "RabbitMQ message published by auth-service when a user signs up or attempts to sign in without a verified email. Notification-service sends a verification email with a button linking to Better Auth's one-time verification URL.",
+        required: [
+          "eventId",
+          "eventType",
+          "occurredAt",
+          "user",
+          "verificationUrl",
+        ],
+        properties: {
+          eventId: { type: "string", format: "uuid" },
+          eventType: {
+            type: "string",
+            const: "user.email_verification_requested",
+          },
+          occurredAt: { type: "string", format: "date-time" },
+          user: {
+            type: "object",
+            required: ["id", "name", "email", "createdAt"],
+            properties: {
+              id: { type: "string" },
+              name: { type: "string" },
+              email: { type: "string", format: "email" },
+              createdAt: { type: "string", format: "date-time" },
+            },
+          },
+          verificationUrl: {
+            type: "string",
+            format: "uri",
+            description:
+              "One-time Better Auth verification URL. Transport and storage must remain restricted to trusted backend services.",
+          },
+        },
+      },
       JobPublishedEvent: {
         type: "object",
         description:

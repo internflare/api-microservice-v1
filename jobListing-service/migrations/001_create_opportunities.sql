@@ -29,10 +29,13 @@ CREATE TABLE IF NOT EXISTS opportunities (
   views_count INTEGER NOT NULL DEFAULT 0,
   last_synced_at TIMESTAMPTZ,
   expires_at TIMESTAMPTZ,
-  created_by UUID,
+  created_by TEXT,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMPTZ
 );
+
+ALTER TABLE opportunities
+  ALTER COLUMN created_by TYPE TEXT USING created_by::text;
 
 CREATE INDEX IF NOT EXISTS opportunities_published_created_idx
   ON opportunities (created_at DESC, id)

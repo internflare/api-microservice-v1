@@ -3,7 +3,11 @@ import * as Sentry from "@sentry/node";
 import { Pool } from "pg";
 import { resolve } from "node:path";
 import { config, isProduction } from "./config.js";
-import { queueSignupNotification } from "./services/notification-publisher.js";
+import {
+  queueEmailVerification,
+  queuePasswordReset,
+  queueSignupNotification,
+} from "./services/notification-publisher.js";
 import { logger } from "./utils/logger.js";
 
 // Configure the PostgreSQL connection string to require SSL with full verification.
@@ -31,6 +35,54 @@ const auth = betterAuth({
   trustedOrigins: config.trustedOrigins,
   emailAndPassword: {
     enabled: true,
+    requireEmailVerification: true,
+    autoSignIn: false,
+    // Reset links stay valid for 30 minutes, matching the copy shown on the forgot-password page.
+    resetPasswordTokenExpiresIn: 60 * 30,
+    sendResetPassword: async ({ user, url }) => {
+      // Do not await: awaiting would let response timing reveal whether the email exists.
+      void queuePasswordReset(
+        {
+          id: user.id,
+          name: user.name,
+          email: user.email,
+          createdAt: user.createdAt.toISOString(),
+        },
+        url,
+      ).catch((error: unknown) => {
+        Sentry.captureException(error, {
+          tags: { operation: "publish-password-reset" },
+        });
+        logger("error", "Failed to enqueue password reset email:", error);
+      });
+    },
+  },
+  emailVerification: {
+    sendOnSignUp: true,
+    sendOnSignIn: true,
+    autoSignInAfterVerification: true,
+    sendVerificationEmail: async ({ user, url }) => {
+      try {
+        await queueEmailVerification(
+          {
+            id: user.id,
+            name: user.name,
+            email: user.email,
+            createdAt: user.createdAt.toISOString(),
+          },
+          url,
+        );
+      } catch (error) {
+        Sentry.captureException(error, {
+          tags: { operation: "publish-email-verification" },
+        });
+        logger("error", "Failed to enqueue email verification:", error);
+        throw error;
+      }
+    },
+  },
+  account: {
+    encryptOAuthTokens: true,
   },
   databaseHooks: {
     user: {

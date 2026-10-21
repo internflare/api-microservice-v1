@@ -75,7 +75,9 @@ function getTarget(pathname: string): URL {
 
   if (
     pathname === `${apiVersion}/opportunities` ||
-    pathname.startsWith(`${apiVersion}/opportunities/`)
+    pathname.startsWith(`${apiVersion}/opportunities/`) ||
+    pathname === `${apiVersion}/job/listing` ||
+    pathname.startsWith(`${apiVersion}/job/listing/`)
   ) {
     return config.jobListingServiceUrl;
   }
@@ -90,8 +92,10 @@ function getTarget(pathname: string): URL {
     return config.notificationServiceUrl;
   }
 
+  // if path start with employer
   if (
-    pathname === `${apiVersion}/auth` ||
+    pathname.startsWith(`${apiVersion}/employer/`) ||
+    pathname.startsWith(`${apiVersion}/company/`) ||
     pathname.startsWith(`${apiVersion}/auth/`) ||
     pathname === `${apiVersion}/admin/verifications` ||
     pathname.startsWith(`${apiVersion}/admin/verifications/`) ||
@@ -198,9 +202,12 @@ const server = createServer((incoming, outgoing) => {
 
   // Forward the request to the appropriate upstream service based on the request path.
   const target = getTarget(requestUrl.pathname);
-  const upstreamPath = requestUrl.pathname.startsWith(`${apiVersion}/`)
-    ? `${requestUrl.pathname.slice(apiVersion.length)}${requestUrl.search}`
-    : `${requestUrl.pathname}${requestUrl.search}`;
+  const servicePath = requestUrl.pathname.startsWith(`${apiVersion}/job/listing`)
+    ? requestUrl.pathname.replace(`${apiVersion}/job/listing`, "/opportunities")
+    : requestUrl.pathname.startsWith(`${apiVersion}/`)
+      ? requestUrl.pathname.slice(apiVersion.length)
+      : requestUrl.pathname;
+  const upstreamPath = `${servicePath}${requestUrl.search}`;
   const headers = forwardableHeaders(incoming.headers);
   headers.host = target.host;
   // Do not trust a client-supplied X-Forwarded-For value unless a trusted-proxy policy is configured.

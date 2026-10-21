@@ -33,6 +33,15 @@ const config = {
   port: parsePort(process.env.PORT),
   databaseUrl: requireEnv("DATABASE_URL"),
   databaseSsl: process.env.DATABASE_SSL?.trim().toLowerCase() === "true",
+  authServiceUrl:
+    process.env.AUTH_SERVICE_URL?.trim() || "http://localhost:3001",
+  profileServiceUrl:
+    process.env.PROFILE_SERVICE_URL?.trim() || "http://localhost:3004",
+  internalServiceSecret:
+    process.env.INTERNAL_SERVICE_SECRET?.trim() ||
+    (process.env.NODE_ENV === "production"
+      ? requireEnv("INTERNAL_SERVICE_SECRET")
+      : "internflare-internal-microservice-secret-key-32chars"),
   rabbitmqUrl,
   notificationQueue: "internflare.notifications",
   frontendUrl,

@@ -17,6 +17,14 @@ export interface UserSignedUpEvent {
   user: SignedUpUser;
 }
 
+export interface EmailVerificationRequestedEvent {
+  eventId: string;
+  eventType: "user.email_verification_requested";
+  occurredAt: string;
+  user: SignedUpUser;
+  verificationUrl: string;
+}
+
 let connection: ChannelModel | undefined;
 let channelPromise: Promise<ConfirmChannel> | undefined;
 
@@ -110,3 +118,66 @@ async function closeNotificationPublisher(): Promise<void> {
 }
 
 export { queueSignupNotification, closeNotificationPublisher };
+
+export interface PasswordResetRequestedEvent {
+  eventId: string;
+  eventType: "user.password_reset_requested";
+  occurredAt: string;
+  user: SignedUpUser;
+  resetUrl: string;
+}
+
+// Queue the reset email; the notification-service renders and sends it.
+export async function queuePasswordReset(
+  user: SignedUpUser,
+  resetUrl: string,
+): Promise<void> {
+  const channel = await getPublisherChannel();
+  const event: PasswordResetRequestedEvent = {
+    eventId: randomUUID(),
+    eventType: "user.password_reset_requested",
+    occurredAt: new Date().toISOString(),
+    user,
+    resetUrl,
+  };
+
+  channel.sendToQueue(
+    config.notificationQueue,
+    Buffer.from(JSON.stringify(event)),
+    {
+      contentType: "application/json",
+      persistent: true,
+      messageId: event.eventId,
+      timestamp: Date.now(),
+    },
+  );
+  await channel.waitForConfirms();
+  logger("info", `Queued password reset email for user ${user.id}`);
+}
+
+export async function queueEmailVerification(
+  user: SignedUpUser,
+  verificationUrl: string,
+): Promise<void> {
+  const channel = await getPublisherChannel();
+  const event: EmailVerificationRequestedEvent = {
+    eventId: randomUUID(),
+    eventType: "user.email_verification_requested",
+    occurredAt: new Date().toISOString(),
+    user,
+    verificationUrl,
+  };
+
+  channel.sendToQueue(
+    config.notificationQueue,
+    Buffer.from(JSON.stringify(event)),
+    {
+      contentType: "application/json",
+      persistent: true,
+      messageId: event.eventId,
+      timestamp: Date.now(),
+    },
+  );
+  await channel.waitForConfirms();
+  logger("info", `Queued email verification for user ${user.id}`);
+}

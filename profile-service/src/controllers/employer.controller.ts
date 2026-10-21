@@ -1,15 +1,12 @@
 import type { RequestHandler } from "express";
 import { CompanyModel } from "../models/company.model.js";
+import { AppError } from "../utils/appError.js";
 
 /**
- * GET /api/admin/verifications
+ * GET /api/v1/employers/verifications
  * Lists all pending verification requests across companies for platform administrators.
  */
-export const listPendingVerifications: RequestHandler = async (
-  _req,
-  res,
-  next,
-) => {
+const listPendingVerifications: RequestHandler = async (_req, res, next) => {
   try {
     const pending = await CompanyModel.listPendingVerifications();
 
@@ -26,11 +23,11 @@ export const listPendingVerifications: RequestHandler = async (
 };
 
 /**
- * POST /api/admin/verifications/:id/decision
+ * POST /api/v1/employers/verifications/:id/decision
  * Records an approval or rejection decision on a verification request (PRD §4.2).
  * Restricted to platform administrators.
  */
-export const decideVerification: RequestHandler = async (req, res, next) => {
+const decideVerification: RequestHandler = async (req, res, next) => {
   try {
     const adminId = req.user?.id;
     if (!adminId) {
@@ -56,22 +53,37 @@ export const decideVerification: RequestHandler = async (req, res, next) => {
   }
 };
 
-// GET /api/admin/employer/dashboard
-export const getAdminDashboardMetrics: RequestHandler = async (
-  req,
-  res,
-  next,
-) => {
+// check if  the user is authenticated and has previledge
+const isCompanyAdmin = (id: string) => {
+  // check if there is a row on company_member table with this userId,companyId and workspace_role is admin
+  return CompanyModel.isCompanyAdmin(id);
+};
+
+// GET /api/v1/employers/dashboard
+const getAdminDashboardMetrics: RequestHandler = async (req, res, next) => {
   try {
-    const adminId = req.user?.id;
-    if (!adminId) {
-      res.status(401).json({ error: "Unauthorized" });
-      return;
+    const userId = req.user?.id;
+    if (!userId) {
+      throw new AppError("Authentication is required", 401);
     }
 
-    const metrics = await CompanyModel.getAdminDashboardMetrics();
+    const companyId = await isCompanyAdmin(userId);
+
+    if (!companyId) {
+      throw new AppError("Active company administrator access required", 403);
+    }
+
+    // Fetch and return the dashboard metrics
+    const metrics = await CompanyModel.getAdminDashboardMetrics(companyId);
     res.status(200).json({ metrics });
   } catch (error) {
     next(error);
   }
+};
+
+export {
+  isCompanyAdmin,
+  listPendingVerifications,
+  decideVerification,
+  getAdminDashboardMetrics,
 };

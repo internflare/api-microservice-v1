@@ -36,6 +36,7 @@ test("Auth Service - OpenAPI Documentation Specification", async (t) => {
     assert.ok(openApiDocument.paths["/me"]);
     assert.ok(openApiDocument.paths["/api/auth/sign-in/email"]);
     assert.ok(openApiDocument.paths["/api/auth/sign-up/email"]);
+    assert.ok(openApiDocument.paths["/api/auth/verify-email"]);
     assert.ok(openApiDocument.paths["/api/auth/sign-out"]);
     assert.ok(openApiDocument.paths["/api/auth/get-session"]);
   });

@@ -93,7 +93,7 @@ export const openApiDocument = {
         tags: ["Authentication"],
         summary: "Create an account with email and password",
         description:
-          "Forwarded unchanged to Better Auth. A welcome-email event is published after successful account creation.",
+          "Forwarded unchanged to Better Auth. Welcome and email-verification events are published after account creation. Email/password users must verify before signing in; the verification email contains a button that continues to the requested onboarding callback.",
         requestBody: {
           required: true,
           content: {
@@ -103,7 +103,7 @@ export const openApiDocument = {
           },
         },
         responses: {
-          "200": { description: "Account created and session returned" },
+          "200": { description: "Account created; check email to verify before continuing onboarding" },
           "400": { description: "Invalid sign-up request" },
           "429": { description: "Too many requests" },
           "502": { description: "Auth service is unavailable" },
@@ -114,7 +114,8 @@ export const openApiDocument = {
       post: {
         tags: ["Authentication"],
         summary: "Sign in with email and password",
-        description: "Forwarded unchanged to Better Auth.",
+        description:
+          "Forwarded unchanged to Better Auth. Email/password accounts must verify their email address before a session can be created.",
         requestBody: {
           required: true,
           content: {
@@ -127,7 +128,7 @@ export const openApiDocument = {
           "200": {
             description: "Sign-in succeeded; session cookie is returned",
           },
-          "401": { description: "Invalid email or password" },
+          "401": { description: "Invalid email or password, or email verification is required" },
           "429": { description: "Too many requests" },
           "502": { description: "Auth service is unavailable" },
         },
@@ -194,6 +195,33 @@ export const openApiDocument = {
         },
       },
     },
+    "/api/auth/verify-email": {
+      get: {
+        tags: ["Authentication"],
+        summary: "Verify an email address",
+        description:
+          "Better Auth validates the one-time verification token from the email link, verifies the address, and redirects to the sign-up callback URL.",
+        parameters: [
+          {
+            name: "token",
+            in: "query",
+            required: true,
+            schema: { type: "string" },
+          },
+          {
+            name: "callbackURL",
+            in: "query",
+            required: false,
+            schema: { type: "string", format: "uri" },
+          },
+        ],
+        responses: {
+          "302": { description: "Email verified; redirected to onboarding" },
+          "400": { description: "Verification token is invalid or expired" },
+          "502": { description: "Auth service is unavailable" },
+        },
+      },
+    },
     "/api/auth/get-session": {
       get: {
         tags: ["Authentication"],
@@ -208,7 +236,7 @@ export const openApiDocument = {
         },
       },
     },
-    "/api/v1/auth/employer-onboarding": {
+    "/api/v1/company/employer-onboarding": {
       post: {
         tags: ["Companies"],
         summary: "Create a company",
@@ -232,7 +260,43 @@ export const openApiDocument = {
         },
       },
     },
-    "/api/v1/auth/{id}": {
+    "/api/v1/company/mine": {
+      get: {
+        tags: ["Companies"],
+        summary: "List the current user's active administrator companies",
+        security: [{ sessionCookie: [] }],
+        responses: {
+          "200": {
+            description: "Companies where the current user is an active administrator",
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  required: ["companies"],
+                  properties: {
+                    companies: {
+                      type: "array",
+                      items: {
+                        type: "object",
+                        required: ["id", "name"],
+                        properties: {
+                          id: { type: "string", format: "uuid" },
+                          name: { type: "string" },
+                          country: { type: ["string", "null"] },
+                        },
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          },
+          "401": { description: "Authentication is required" },
+          "502": { description: "Company service is unavailable" },
+        },
+      },
+    },
+    "/api/v1/company/{id}": {
       parameters: [{ $ref: "#/components/parameters/CompanyId" }],
       get: {
         tags: ["Companies"],
@@ -266,7 +330,7 @@ export const openApiDocument = {
         },
       },
     },
-    "/api/v1/auth/{id}/members": {
+    "/api/v1/company/{id}/members": {
       parameters: [{ $ref: "#/components/parameters/CompanyId" }],
       get: {
         tags: ["Companies"],
@@ -279,7 +343,7 @@ export const openApiDocument = {
         },
       },
     },
-    "/api/v1/auth/{id}/members/invite": {
+    "/api/v1/company/{id}/members/invite": {
       parameters: [{ $ref: "#/components/parameters/CompanyId" }],
       post: {
         tags: ["Companies"],
@@ -304,7 +368,7 @@ export const openApiDocument = {
         },
       },
     },
-    "/api/v1/auth/{id}/members/accept": {
+    "/api/v1/company/{id}/members/accept": {
       parameters: [{ $ref: "#/components/parameters/CompanyId" }],
       post: {
         tags: ["Companies"],
@@ -317,7 +381,7 @@ export const openApiDocument = {
         },
       },
     },
-    "/api/v1/auth/{id}/members/{memberId}": {
+    "/api/v1/company/{id}/members/{memberId}": {
       parameters: [
         { $ref: "#/components/parameters/CompanyId" },
         {
@@ -345,7 +409,7 @@ export const openApiDocument = {
         },
       },
     },
-    "/api/v1/auth/{id}/verifications": {
+    "/api/v1/company/{id}/verifications": {
       parameters: [{ $ref: "#/components/parameters/CompanyId" }],
       get: {
         tags: ["Companies"],
@@ -712,6 +776,139 @@ export const openApiDocument = {
         responses: {
           "200": { description: "Opportunity record" },
           "400": { description: "ID is not a UUID" },
+          "404": { description: "Opportunity not found" },
+          "502": { description: "Job listing service is unavailable" },
+        },
+      },
+    },
+    "/api/v1/job/listing": {
+      get: {
+        tags: ["Opportunities"],
+        summary: "Search and paginate opportunities",
+        description:
+          "Public route forwarded to joblisting-service. Published listings are returned by default; querying another status requires a session and active company-admin access.",
+        parameters: [
+          { name: "page", in: "query", schema: { type: "integer", minimum: 1, default: 1 } },
+          { name: "page_size", in: "query", schema: { type: "integer", minimum: 1, maximum: 100, default: 20 } },
+          { name: "sort_by", in: "query", schema: { type: "string", enum: ["created_at", "updated_at", "application_deadline", "start_date", "title"] } },
+          { name: "sort_order", in: "query", schema: { type: "string", enum: ["asc", "desc"] } },
+          { name: "opportunity_type", in: "query", schema: { type: "string" } },
+          { name: "employment_type", in: "query", schema: { type: "string" } },
+          { name: "experience_level", in: "query", schema: { type: "string" } },
+          { name: "work_arrangement", in: "query", schema: { type: "string" } },
+          { name: "country", in: "query", schema: { type: "string", minLength: 2, maxLength: 2 } },
+          { name: "status", in: "query", schema: { type: "string", enum: ["draft", "published", "paused", "closed"] } },
+          { name: "is_paid", in: "query", schema: { type: "boolean" } },
+          { name: "search", in: "query", schema: { type: "string", maxLength: 200 } },
+          { name: "skills", in: "query", description: "Comma-separated skill names; all listed skills must match.", schema: { type: "string" } },
+          { name: "company_id", in: "query", description: "With scope=company, lists every status for this company (admin only). Alternatively send company_id in a JSON request body.", schema: { type: "string", format: "uuid" } },
+          { name: "scope", in: "query", description: "Set to `company` to use company_id as the management listing.", schema: { type: "string", enum: ["company"] } },
+        ],
+        responses: {
+          "200": { description: "Page of matching opportunity listings" },
+          "400": { description: "Invalid query parameters" },
+          "401": { description: "Authentication is required for unpublished statuses" },
+          "403": { description: "Active company administrator access is required" },
+          "502": { description: "Job listing service is unavailable" },
+        },
+      },
+      post: {
+        tags: ["Opportunities"],
+        summary: "Create an opportunity",
+        description:
+          "Requires a Better Auth session and active ADMIN membership in the supplied company. The backend derives company name and creator from trusted service data.",
+        security: [{ sessionCookie: [] }],
+        requestBody: {
+          required: true,
+          content: {
+            "application/json": {
+              schema: { $ref: "#/components/schemas/CreateOpportunityRequest" },
+            },
+          },
+        },
+        responses: {
+          "201": { description: "Opportunity created" },
+          "400": { description: "Invalid opportunity payload" },
+          "401": { description: "Authentication is required" },
+          "403": { description: "Active company administrator access is required" },
+          "503": { description: "Authentication or authorization service is unavailable" },
+          "502": { description: "Job listing service is unavailable" },
+        },
+      },
+    },
+    "/api/v1/job/listing/{id}": {
+      parameters: [{ $ref: "#/components/parameters/OpportunityId" }],
+      get: {
+        tags: ["Opportunities"],
+        summary: "Get an opportunity by ID",
+        description:
+          "Published opportunities are public. Any other status requires a session and active company-admin access.",
+        responses: {
+          "200": { description: "Opportunity record" },
+          "400": { description: "ID is not a UUID" },
+          "401": { description: "Authentication is required for unpublished opportunities" },
+          "403": { description: "Active company administrator access is required" },
+          "404": { description: "Opportunity not found" },
+          "502": { description: "Job listing service is unavailable" },
+        },
+      },
+      put: {
+        tags: ["Opportunities"],
+        summary: "Update editable fields on an opportunity",
+        security: [{ sessionCookie: [] }],
+        description:
+          "Requires a Better Auth session and active ADMIN membership in the opportunity's company.",
+        requestBody: {
+          required: true,
+          content: {
+            "application/json": {
+              schema: { $ref: "#/components/schemas/OpportunityUpdateRequest" },
+            },
+          },
+        },
+        responses: {
+          "200": { description: "Opportunity updated" },
+          "400": { description: "Invalid ID or update payload" },
+          "401": { description: "Authentication is required" },
+          "403": { description: "Active company administrator access is required" },
+          "404": { description: "Opportunity not found" },
+          "502": { description: "Job listing service is unavailable" },
+        },
+      },
+      patch: {
+        tags: ["Opportunities"],
+        summary: "Partially update an opportunity",
+        security: [{ sessionCookie: [] }],
+        description:
+          "Requires a Better Auth session and active ADMIN membership in the opportunity's company.",
+        requestBody: {
+          required: true,
+          content: {
+            "application/json": {
+              schema: { $ref: "#/components/schemas/OpportunityUpdateRequest" },
+            },
+          },
+        },
+        responses: {
+          "200": { description: "Opportunity updated" },
+          "400": { description: "Invalid ID or update payload" },
+          "401": { description: "Authentication is required" },
+          "403": { description: "Active company administrator access is required" },
+          "404": { description: "Opportunity not found" },
+          "502": { description: "Job listing service is unavailable" },
+        },
+      },
+      delete: {
+        tags: ["Opportunities"],
+        summary: "Delete an opportunity",
+        security: [{ sessionCookie: [] }],
+        description:
+          "Requires a Better Auth session and active ADMIN membership in the opportunity's company.",
+        responses: {
+          "204": { description: "Opportunity deleted" },
+          "400": { description: "ID is not a UUID" },
+          "401": { description: "Authentication is required" },
+          "403": { description: "Active company administrator access is required" },
           "404": { description: "Opportunity not found" },
           "502": { description: "Job listing service is unavailable" },
         },
@@ -1095,19 +1292,17 @@ export const openApiDocument = {
       CreateOpportunityRequest: {
         type: "object",
         required: [
-          "source_type",
+          "company_id",
           "title",
           "description",
           "opportunity_type",
           "is_paid",
           "work_arrangement",
         ],
+        additionalProperties: false,
         properties: {
-          company_id: { type: ["string", "null"], format: "uuid" },
-          external_company_name: { type: ["string", "null"] },
-          source_type: { type: "string" },
-          external_id: { type: ["string", "null"] },
-          source_url: { type: ["string", "null"], format: "uri" },
+          company_id: { type: "string", format: "uuid" },
+          source_type: { type: "string", default: "employer" },
           external_apply_url: { type: ["string", "null"], format: "uri" },
           title: { type: "string" },
           description: { type: "string" },
@@ -1131,8 +1326,10 @@ export const openApiDocument = {
             format: "date-time",
           },
           openings: { type: ["integer", "null"] },
-          status: { type: "string" },
-          created_by: { type: ["string", "null"], format: "uuid" },
+          status: {
+            type: "string",
+            enum: ["draft", "published", "paused", "closed"],
+          },
           follower_recipients: {
             type: "array",
             description:
@@ -1144,6 +1341,38 @@ export const openApiDocument = {
                 email: { type: "string", format: "email" },
                 name: { type: "string", maxLength: 120 },
               },
+            },
+          },
+          OpportunityUpdateRequest: {
+            type: "object",
+            minProperties: 1,
+            additionalProperties: false,
+            properties: {
+              external_apply_url: { type: ["string", "null"], format: "uri" },
+              title: { type: "string", minLength: 1, maxLength: 500 },
+              description: { type: "string", minLength: 1, maxLength: 50000 },
+              responsibilities: { type: ["string", "null"], maxLength: 50000 },
+              opportunity_type: { type: "string", minLength: 1, maxLength: 100 },
+              employment_type: { type: ["string", "null"], maxLength: 100 },
+              experience_level: { type: ["string", "null"], maxLength: 100 },
+              is_paid: { type: "boolean" },
+              compensation_min: { type: ["number", "null"], minimum: 0 },
+              compensation_max: { type: ["number", "null"], minimum: 0 },
+              currency: { type: ["string", "null"], pattern: "^[A-Za-z]{3}$" },
+              payment_frequency: { type: ["string", "null"], maxLength: 100 },
+              country: { type: ["string", "null"], pattern: "^[A-Za-z]{2}$" },
+              location: { type: ["string", "null"], maxLength: 255 },
+              work_arrangement: { type: "string", minLength: 1, maxLength: 100 },
+              skills_required: {
+                type: "array",
+                maxItems: 100,
+                items: { type: "string", minLength: 1, maxLength: 100 },
+              },
+              duration_weeks: { type: ["integer", "null"], minimum: 1, maximum: 520 },
+              start_date: { type: ["string", "null"], format: "date" },
+              application_deadline: { type: ["string", "null"], format: "date-time" },
+              openings: { type: ["integer", "null"], minimum: 1, maximum: 1000000 },
+              status: { type: "string", enum: ["draft", "published", "paused", "closed"] },
             },
           },
         },

@@ -67,6 +67,33 @@ export type OpportunityInput = Pick<
     >
   >;
 
+export type OpportunityUpdate = Partial<
+  Pick<
+    OpportunityRecord,
+    | "title"
+    | "description"
+    | "responsibilities"
+    | "opportunity_type"
+    | "employment_type"
+    | "experience_level"
+    | "is_paid"
+    | "compensation_min"
+    | "compensation_max"
+    | "currency"
+    | "payment_frequency"
+    | "country"
+    | "location"
+    | "work_arrangement"
+    | "skills_required"
+    | "duration_weeks"
+    | "start_date"
+    | "application_deadline"
+    | "openings"
+    | "status"
+    | "external_apply_url"
+  >
+>;
+
 const columns = [
   "company_id",
   "external_company_name",
@@ -142,7 +169,7 @@ async function listOpportunities(query: OpportunityQuery): Promise<{
     addCondition("work_arrangement = ?", filters.workArrangement);
   if (filters.country)
     addCondition("country = ?", filters.country.toUpperCase());
-  if (filters.status) addCondition("status = ?", filters.status);
+  addCondition("status = ?", filters.status ?? "published");
   if (filters.isPaid !== undefined) addCondition("is_paid = ?", filters.isPaid);
   if (filters.companyId) addCondition("company_id = ?", filters.companyId);
   if (filters.search) {
@@ -180,6 +207,31 @@ async function listOpportunities(query: OpportunityQuery): Promise<{
   };
 }
 
+// Keep the employer listing query company-scoped so unpublished records never leak through public search.
+async function listCompanyOpportunities(
+  companyId: string,
+  page: number,
+  pageSize: number,
+): Promise<{ items: OpportunityRecord[]; total: number }> {
+  const values = [companyId, pageSize, (page - 1) * pageSize];
+  const countResult = await database.query<{ total: string }>(
+    "SELECT COUNT(*) AS total FROM opportunities WHERE company_id = $1",
+    [companyId],
+  );
+  const result = await database.query<OpportunityRecord>(
+    `SELECT * FROM opportunities
+     WHERE company_id = $1
+     ORDER BY created_at DESC, id ASC
+     LIMIT $2 OFFSET $3`,
+    values,
+  );
+
+  return {
+    items: result.rows,
+    total: Number(countResult.rows[0]?.total ?? 0),
+  };
+}
+
 async function getOpportunityById(
   id: string,
 ): Promise<OpportunityRecord | undefined> {
@@ -190,6 +242,62 @@ async function getOpportunityById(
   return result.rows[0];
 }
 
+async function updateOpportunity(
+  id: string,
+  companyId: string,
+  input: OpportunityUpdate,
+): Promise<OpportunityRecord | undefined> {
+  const allowedColumns = [
+    "title",
+    "description",
+    "responsibilities",
+    "opportunity_type",
+    "employment_type",
+    "experience_level",
+    "is_paid",
+    "compensation_min",
+    "compensation_max",
+    "currency",
+    "payment_frequency",
+    "country",
+    "location",
+    "work_arrangement",
+    "skills_required",
+    "duration_weeks",
+    "start_date",
+    "application_deadline",
+    "openings",
+    "status",
+    "external_apply_url",
+  ] as const;
+  const entries = allowedColumns.filter((column) =>
+    Object.hasOwn(input, column),
+  );
+  if (entries.length === 0) return getOpportunityById(id);
+
+  const values = entries.map((column) => input[column] ?? null);
+  values.push(id, companyId);
+  const setClause = entries
+    .map((column, index) => `${column} = $${index + 1}`)
+    .join(", ");
+  const result = await database.query<OpportunityRecord>(
+    `UPDATE opportunities
+     SET ${setClause}, updated_at = NOW()
+     WHERE id = $${values.length - 1} AND company_id = $${values.length}
+     RETURNING *`,
+    values,
+  );
+  return result.rows[0];
+}
+
+async function deleteOpportunity(id: string, companyId: string): Promise<boolean> {
+  const result = await database.query(
+    "DELETE FROM opportunities WHERE id = $1 AND company_id = $2",
+    [id, companyId],
+  );
+  return result.rowCount === 1;
+}
+
 async function checkDatabaseConnection(): Promise<void> {
   await database.query("SELECT 1");
 }
@@ -197,6 +305,9 @@ async function checkDatabaseConnection(): Promise<void> {
 export {
   createOpportunity,
   getOpportunityById,
+  updateOpportunity,
+  deleteOpportunity,
   listOpportunities,
+  listCompanyOpportunities,
   checkDatabaseConnection,
 };
