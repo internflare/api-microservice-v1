@@ -1,11 +1,17 @@
 import type { RequestHandler } from "express";
-import { checkDatabaseConnection } from "../models/opportunity.model.js";
+import mongoose from "mongoose";
 import { connectNotificationPublisher } from "../services/notification-publisher.service.js";
 import { logger } from "../utils/logger.js";
 
-export const healthHandler: RequestHandler = async (_request, response) => {
+// Health check handler for the job listing service. It checks the status of the database and RabbitMQ connection.
+const healthHandler: RequestHandler = async (_request, response) => {
+  // Perform health checks for the database and RabbitMQ connection concurrently.
   const [databaseResult, rabbitmqResult] = await Promise.allSettled([
-    checkDatabaseConnection(),
+    Promise.resolve().then(() => {
+      if (mongoose.connection.readyState !== 1) {
+        throw new Error("MongoDB is not connected");
+      }
+    }),
     connectNotificationPublisher(),
   ]);
   const databaseStatus =
@@ -14,10 +20,18 @@ export const healthHandler: RequestHandler = async (_request, response) => {
     rabbitmqResult.status === "fulfilled" ? "connected" : "unavailable";
 
   if (databaseResult.status === "rejected") {
-    logger("error", "Job listing database health check failed:", databaseResult.reason);
+    logger(
+      "error",
+      "Job listing database health check failed:",
+      databaseResult.reason,
+    );
   }
   if (rabbitmqResult.status === "rejected") {
-    logger("error", "Job listing RabbitMQ health check failed:", rabbitmqResult.reason);
+    logger(
+      "error",
+      "Job listing RabbitMQ health check failed:",
+      rabbitmqResult.reason,
+    );
   }
 
   const healthy =
@@ -29,3 +43,5 @@ export const healthHandler: RequestHandler = async (_request, response) => {
     rabbitmq: rabbitmqStatus,
   });
 };
+
+export { healthHandler };

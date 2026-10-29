@@ -1,11 +1,12 @@
 import { app } from "./app.js";
 import { config } from "./config.js";
-import { database } from "./db/pool.js";
-import { migrateDatabase } from "./db/migrate.js";
+import { closeDb, connectDb } from "./db/mongoose.js";
 import {
   closeNotificationPublisher,
   connectNotificationPublisher,
 } from "./services/notification-publisher.service.js";
+import { closeCache, connectCache } from "./services/cache.service.js";
+import { ensureViewIndexes } from "./models/opportunity-view.model.js";
 import { logger } from "./utils/logger.js";
 
 const wait = (milliseconds: number) =>
@@ -44,7 +45,9 @@ async function connectToNotificationQueue(): Promise<void> {
 }
 
 async function start(): Promise<void> {
-  await migrateDatabase();
+  await connectDb(config.mongoUri, config.mongoDbName);
+  await ensureViewIndexes();
+  await connectCache();
   await connectToNotificationQueue();
 
   const server = app.listen(config.port, () => {
@@ -65,7 +68,8 @@ async function start(): Promise<void> {
 
       for (const [label, closeResource] of [
         ["RabbitMQ publisher", closeNotificationPublisher],
-        ["PostgreSQL pool", () => database.end()],
+        ["Redis cache", closeCache],
+        ["MongoDB connection", closeDb],
       ] as const) {
         try {
           await closeResource();
@@ -94,9 +98,14 @@ void start().catch(async (error: unknown) => {
     logger("error", "Failed to close RabbitMQ after startup failure:", publisherError);
   }
   try {
-    await database.end();
+    await closeCache();
+  } catch (cacheError) {
+    logger("error", "Failed to close Redis after startup failure:", cacheError);
+  }
+  try {
+    await closeDb();
   } catch (databaseError) {
-    logger("error", "Failed to close PostgreSQL after startup failure:", databaseError);
+    logger("error", "Failed to close MongoDB after startup failure:", databaseError);
   }
   process.exitCode = 1;
 });

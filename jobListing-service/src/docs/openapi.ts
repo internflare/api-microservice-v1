@@ -1,6 +1,13 @@
+// Companies, opportunities and saved items are all keyed by MongoDB ObjectIds.
+const objectIdSchema = {
+  type: "string",
+  pattern: "^[a-fA-F0-9]{24}$",
+  example: "665f1c2e8a1b2c3d4e5f6a7b",
+} as const;
+
 const opportunityProperties = {
-  id: { type: "string", format: "uuid", readOnly: true },
-  company_id: { type: ["string", "null"], format: "uuid" },
+  id: { ...objectIdSchema, readOnly: true },
+  company_id: { ...objectIdSchema, type: ["string", "null"] },
   external_company_name: { type: ["string", "null"] },
   source_type: { type: "string" },
   external_id: { type: ["string", "null"] },
@@ -9,6 +16,11 @@ const opportunityProperties = {
   title: { type: "string" },
   description: { type: "string" },
   responsibilities: { type: ["string", "null"] },
+  role_id: {
+    type: ["string", "null"],
+    enum: ["frontend-developer", "data-analyst", "backend-engineer", "product-designer", "growth-marketer", "support-engineer", "virtual-assistant", "programme-assistant", null],
+    description: "Career role whose assessment a talent must pass to apply. Null means applications are disabled.",
+  },
   opportunity_type: { type: "string" },
   employment_type: { type: ["string", "null"] },
   experience_level: { type: ["string", "null"] },
@@ -56,6 +68,7 @@ export const openApiDocument = {
     { name: "Health", description: "Service and dependency health" },
     { name: "Opportunities", description: "Opportunity listings" },
     { name: "Applications", description: "Application notification handoff" },
+    { name: "Saved opportunities", description: "A talent's bookmarked listings" },
   ],
   paths: {
     "/health": {
@@ -100,7 +113,7 @@ export const openApiDocument = {
           { name: "is_paid", in: "query", schema: { type: "boolean" } },
           { name: "search", in: "query", schema: { type: "string", maxLength: 200 } },
           { name: "skills", in: "query", description: "Comma-separated skill names; all listed skills must match.", schema: { type: "string" } },
-          { name: "company_id", in: "query", description: "With scope=company, lists every status for this company (admin only). Alternatively send company_id in a JSON request body.", schema: { type: "string", format: "uuid" } },
+          { name: "company_id", in: "query", description: "With scope=company, lists every status for this company (admin only). Alternatively send company_id in a JSON request body.", schema: objectIdSchema },
           { name: "scope", in: "query", description: "Set to `company` to use company_id as the management listing.", schema: { type: "string", enum: ["company"] } },
         ],
         responses: {
@@ -170,7 +183,7 @@ export const openApiDocument = {
           name: "id",
           in: "path",
           required: true,
-          schema: { type: "string", format: "uuid" },
+          schema: objectIdSchema,
         },
       ],
       get: {
@@ -187,7 +200,7 @@ export const openApiDocument = {
               },
             },
           },
-          "400": { description: "ID is not a UUID" },
+          "400": { description: "ID is not a valid ObjectId" },
           "401": { description: "Authentication is required for unpublished opportunities" },
           "403": { description: "Active company administrator access is required" },
           "404": { description: "Opportunity not found" },
@@ -263,11 +276,119 @@ export const openApiDocument = {
           "Requires an authenticated user with active ADMIN membership in the opportunity's company.",
         responses: {
           "204": { description: "Opportunity deleted" },
-          "400": { description: "ID is not a UUID" },
+          "400": { description: "ID is not a valid ObjectId" },
           "401": { description: "Authentication is required" },
           "403": { description: "Active company administrator access is required" },
           "404": { description: "Opportunity not found" },
           "503": { description: "Authentication or company authorization service is unavailable" },
+        },
+      },
+    },
+    "/saved-opportunities": {
+      get: {
+        tags: ["Saved opportunities"],
+        summary: "List the signed-in talent's saved opportunities",
+        security: [{ sessionCookie: [] }],
+        parameters: [
+          { name: "page", in: "query", schema: { type: "integer", minimum: 1, default: 1 } },
+          { name: "page_size", in: "query", schema: { type: "integer", minimum: 1, maximum: 100, default: 20 } },
+        ],
+        responses: {
+          "200": {
+            description: "Saved opportunities, newest first",
+            content: { "application/json": { schema: { $ref: "#/components/schemas/OpportunityListResponse" } } },
+          },
+          "400": { description: "Invalid pagination parameters" },
+          "401": { description: "Authentication is required" },
+        },
+      },
+    },
+    "/saved-opportunities/{opportunityId}": {
+      parameters: [
+        { name: "opportunityId", in: "path", required: true, schema: objectIdSchema },
+      ],
+      get: {
+        tags: ["Saved opportunities"],
+        summary: "Check whether an opportunity is saved",
+        security: [{ sessionCookie: [] }],
+        responses: {
+          "200": {
+            description: "Saved status",
+            content: { "application/json": { schema: { $ref: "#/components/schemas/SavedStatusResponse" } } },
+          },
+          "400": { description: "Invalid opportunity id" },
+          "401": { description: "Authentication is required" },
+        },
+      },
+      put: {
+        tags: ["Saved opportunities"],
+        summary: "Save an opportunity (idempotent)",
+        security: [{ sessionCookie: [] }],
+        responses: {
+          "201": {
+            description: "Opportunity saved",
+            content: { "application/json": { schema: { $ref: "#/components/schemas/SavedStatusResponse" } } },
+          },
+          "200": {
+            description: "Opportunity was already saved",
+            content: { "application/json": { schema: { $ref: "#/components/schemas/SavedStatusResponse" } } },
+          },
+          "400": { description: "Invalid opportunity id" },
+          "401": { description: "Authentication is required" },
+          "404": { description: "Opportunity not found" },
+        },
+      },
+      delete: {
+        tags: ["Saved opportunities"],
+        summary: "Remove a saved opportunity",
+        security: [{ sessionCookie: [] }],
+        responses: {
+          "204": { description: "Removed" },
+          "400": { description: "Invalid opportunity id" },
+          "401": { description: "Authentication is required" },
+          "404": { description: "Saved opportunity not found" },
+        },
+      },
+    },
+    "/opportunities/{id}/eligibility": {
+      parameters: [{ name: "id", in: "path", required: true, schema: objectIdSchema }],
+      get: {
+        tags: ["Applications"],
+        summary: "Check whether the signed-in talent may apply",
+        description:
+          "Compares the talent's best graded assessment for the listing's role_id with the placement the listing requires (job listings need a 'job' placement; internships accept 'internship' or 'job').",
+        security: [{ sessionCookie: [] }],
+        responses: {
+          "200": {
+            description: "Eligibility state",
+            content: { "application/json": { schema: { $ref: "#/components/schemas/EligibilityResponse" } } },
+          },
+          "400": { description: "Invalid opportunity id" },
+          "401": { description: "Authentication is required" },
+          "404": { description: "Opportunity not found or not published" },
+        },
+      },
+    },
+    "/opportunities/{id}/view": {
+      parameters: [{ name: "id", in: "path", required: true, schema: objectIdSchema }],
+      post: {
+        tags: ["Opportunities"],
+        summary: "Record a unique view of a listing",
+        description:
+          "Increments views_count once per signed-in user per listing. Repeat calls and views by the company's own admins are ignored (counted: false).",
+        security: [{ sessionCookie: [] }],
+        responses: {
+          "200": {
+            description: "Whether this call added a new view",
+            content: {
+              "application/json": {
+                schema: { type: "object", properties: { counted: { type: "boolean" } } },
+              },
+            },
+          },
+          "400": { description: "Invalid opportunity id" },
+          "401": { description: "Authentication is required" },
+          "404": { description: "Opportunity not found or not published" },
         },
       },
     },
@@ -277,34 +398,31 @@ export const openApiDocument = {
           name: "id",
           in: "path",
           required: true,
-          schema: { type: "string", format: "uuid" },
+          schema: objectIdSchema,
         },
       ],
       post: {
         tags: ["Applications"],
-        summary: "Queue an application email to the hiring contact",
+        summary: "Apply to a listing",
         description:
-          "This endpoint only queues the notification; applications are not persisted by this service. company_email is a temporary input until company records can resolve the hiring contact.",
-        requestBody: {
-          required: true,
-          content: {
-            "application/json": {
-              schema: { $ref: "#/components/schemas/ApplicationNotificationRequest" },
-            },
-          },
-        },
+          "Requires a session. The applicant identity comes from the session (no request body). Rejected with 403 unless the talent passed the assessment for the listing's role. Queues an email to the listing creator; applications are not persisted by this service.",
+        security: [{ sessionCookie: [] }],
         responses: {
           "202": {
-            description: "Application notification accepted by RabbitMQ",
+            description: "Application accepted and notification queued",
             content: {
               "application/json": {
-                schema: { $ref: "#/components/schemas/ApplicationNotificationResponse" },
+                schema: { type: "object", properties: { status: { type: "string", example: "application_notification_queued" } } },
               },
             },
           },
-          "400": { description: "Invalid application or opportunity ID" },
-          "404": { description: "Opportunity not found" },
-          "503": { description: "Notification could not be queued" },
+          "400": { description: "Invalid opportunity id or account has no email" },
+          "401": { description: "Authentication is required" },
+          "403": {
+            description: "Not eligible; the body includes the eligibility state",
+            content: { "application/json": { schema: { $ref: "#/components/schemas/EligibilityResponse" } } },
+          },
+          "404": { description: "Opportunity not found or not published" },
         },
       },
     },
@@ -319,6 +437,23 @@ export const openApiDocument = {
       },
     },
     schemas: {
+      EligibilityResponse: {
+        type: "object",
+        properties: {
+          state: { type: "string", enum: ["eligible", "not-assessed", "not-eligible", "unconfigured", "closed"] },
+          role_id: { type: ["string", "null"] },
+          required_placement: { type: "string", enum: ["internship", "job"] },
+          placement: { type: ["string", "null"], description: "The talent's best placement for this role" },
+          overall_score: { type: ["number", "null"] },
+        },
+      },
+      SavedStatusResponse: {
+        type: "object",
+        properties: {
+          saved: { type: "boolean" },
+          opportunity_id: objectIdSchema,
+        },
+      },
       Opportunity: {
         type: "object",
         required: opportunityRequired,
@@ -332,8 +467,9 @@ export const openApiDocument = {
         ],
         additionalProperties: false,
         properties: {
-          company_id: { type: "string", format: "uuid" },
+          company_id: objectIdSchema,
           source_type: { type: "string", default: "employer" },
+          role_id: opportunityProperties.role_id,
           external_apply_url: opportunityProperties.external_apply_url,
           title: opportunityProperties.title,
           description: opportunityProperties.description,
@@ -370,6 +506,7 @@ export const openApiDocument = {
         minProperties: 1,
         additionalProperties: false,
         properties: {
+          role_id: opportunityProperties.role_id,
           external_apply_url: opportunityProperties.external_apply_url,
           title: opportunityProperties.title,
           description: opportunityProperties.description,

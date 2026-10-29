@@ -1,4 +1,6 @@
 import type { Request, Response, NextFunction } from "express";
+import { getUploadedFile, storeFile } from "../services/upload.service.js";
+import { UPLOAD_KINDS } from "../validators/upload.validator.js";
 import { TalentModel } from "../models/talent.model.js";
 import { calculateProfileCompleteness } from "../services/completeness.service.js";
 import {
@@ -6,6 +8,16 @@ import {
   UpdateTalentProfileSchema,
   TalentSearchQuerySchema,
 } from "../validators/talent.validator.js";
+import {
+  getAuthenticatedUserId,
+  parseOrReject,
+} from "../validators/request.validator.js";
+import { publishWelcomeEmail } from "../services/notification-publisher.service.js";
+import { cacheAside, cacheKeys, invalidate } from "../services/cache.service.js";
+
+// A profile change affects the user's own cached profile and the employer talent pool.
+const invalidateTalentCaches = (userId: string) =>
+  invalidate(cacheKeys.talentProfile(userId), cacheKeys.talentPool);
 
 export class TalentController {
   /**
@@ -18,24 +30,22 @@ export class TalentController {
     next: NextFunction,
   ): Promise<void> {
     try {
-      const userId = req.user?.id;
-      if (!userId) {
-        res.status(401).json({ success: false, error: "Unauthorized" });
-        return;
-      }
+      const userId = getAuthenticatedUserId(req, res);
+      if (!userId) return;
 
-      const parseResult = CreateTalentProfileSchema.safeParse(req.body);
-      if (!parseResult.success) {
-        res.status(400).json({
-          success: false,
-          error: "Validation Error",
-          details: parseResult.error.flatten(),
-        });
-        return;
-      }
+      const input = parseOrReject(CreateTalentProfileSchema, req.body, res);
+      if (!input) return;
 
-      const profile = await TalentModel.upsertProfile(userId, parseResult.data);
+      // A CV sent with the submit is stored in R2 here, after the data has validated.
+      const cv = getUploadedFile(res, "cv");
+      if (cv) input.cv_url = await storeFile(cv, UPLOAD_KINDS.cv, userId);
+
+      const profile = await TalentModel.upsertProfile(userId, input);
+      await invalidateTalentCaches(userId);
       const completeness = calculateProfileCompleteness(profile);
+
+      // Onboarding is complete once the profile is saved; welcome email is de-duplicated per user.
+      void publishWelcomeEmail(req.user!);
 
       res.status(200).json({
         success: true,
@@ -59,13 +69,12 @@ export class TalentController {
     next: NextFunction,
   ): Promise<void> {
     try {
-      const userId = req.user?.id;
-      if (!userId) {
-        res.status(401).json({ success: false, error: "Unauthorized" });
-        return;
-      }
+      const userId = getAuthenticatedUserId(req, res);
+      if (!userId) return;
 
-      const profile = await TalentModel.findByUserId(userId);
+      const profile = await cacheAside(cacheKeys.talentProfile(userId), () =>
+        TalentModel.findByUserId(userId),
+      );
       if (!profile) {
         res.status(404).json({
           success: false,
@@ -100,26 +109,14 @@ export class TalentController {
     next: NextFunction,
   ): Promise<void> {
     try {
-      const userId = req.user?.id;
-      if (!userId) {
-        res.status(401).json({ success: false, error: "Unauthorized" });
-        return;
-      }
+      const userId = getAuthenticatedUserId(req, res);
+      if (!userId) return;
 
-      const parseResult = UpdateTalentProfileSchema.safeParse(req.body);
-      if (!parseResult.success) {
-        res.status(400).json({
-          success: false,
-          error: "Validation Error",
-          details: parseResult.error.flatten(),
-        });
-        return;
-      }
+      const input = parseOrReject(UpdateTalentProfileSchema, req.body, res);
+      if (!input) return;
 
-      const updatedProfile = await TalentModel.updateProfile(
-        userId,
-        parseResult.data,
-      );
+      const updatedProfile = await TalentModel.updateProfile(userId, input);
+      await invalidateTalentCaches(userId);
       const completeness = calculateProfileCompleteness(updatedProfile);
 
       res.status(200).json({
@@ -136,7 +133,7 @@ export class TalentController {
 
   /**
    * GET /api/v1/talent/profile/:id
-   * Public profile view (by profile UUID)
+   * Public profile view (by profile id)
    */
   static async getProfileById(
     req: Request,
@@ -177,17 +174,15 @@ export class TalentController {
     next: NextFunction,
   ): Promise<void> {
     try {
-      const parseResult = TalentSearchQuerySchema.safeParse(req.query);
-      if (!parseResult.success) {
-        res.status(400).json({
-          success: false,
-          error: "Invalid Query Parameters",
-          details: parseResult.error.flatten(),
-        });
-        return;
-      }
+      const query = parseOrReject(
+        TalentSearchQuerySchema,
+        req.query,
+        res,
+        "Invalid Query Parameters",
+      );
+      if (!query) return;
 
-      const query = parseResult.data;
+      // skills may arrive as a repeated param (array) or a comma-separated string.
       const skillsArray = query.skills
         ? Array.isArray(query.skills)
           ? query.skills

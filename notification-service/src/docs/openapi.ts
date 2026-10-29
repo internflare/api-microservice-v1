@@ -4,7 +4,7 @@ export const openApiDocument = {
     title: "Internflare Notification Service",
     version: "1.0.0",
     description:
-      "Backend email notification delivery API. Notification delivery records are stored in PostgreSQL. Signup and job-listing events published by backend services are consumed from the shared durable RabbitMQ queue `internflare.notifications` and routed by eventType. In-app delivery is not included yet.",
+      "Backend email notification delivery API. Notification delivery records are stored in MongoDB. Signup and job-listing events published by backend services are consumed from the shared durable RabbitMQ queue `internflare.notifications` and routed by eventType. In-app delivery is not included yet.",
   },
   servers: [{ url: "/", description: "Current notification-service origin" }],
   tags: [
@@ -67,7 +67,7 @@ export const openApiDocument = {
         responses: {
           "202": {
             description:
-              "Email accepted by Resend and notification saved in PostgreSQL",
+              "Email accepted by Resend and notification saved in MongoDB",
             content: {
               "application/json": {
                 schema: { $ref: "#/components/schemas/AcceptedResponse" },
@@ -204,8 +204,8 @@ export const openApiDocument = {
               "application_deadline",
             ],
             properties: {
-              id: { type: "string", format: "uuid" },
-              company_id: { type: ["string", "null"], format: "uuid" },
+              id: { type: "string", description: "MongoDB ObjectId" },
+              company_id: { type: ["string", "null"], description: "MongoDB ObjectId" },
               title: { type: "string" },
               description: { type: "string" },
               location: { type: ["string", "null"] },
@@ -240,7 +240,7 @@ export const openApiDocument = {
               "applicantEmail",
             ],
             properties: {
-              opportunityId: { type: "string", format: "uuid" },
+              opportunityId: { type: "string", description: "MongoDB ObjectId" },
               opportunityTitle: { type: "string" },
               applicantName: { type: "string" },
               applicantEmail: { type: "string", format: "email" },

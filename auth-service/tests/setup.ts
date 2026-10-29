@@ -8,8 +8,8 @@ process.env.PORT = process.env.PORT || "3001";
 process.env.CORS_ORIGINS = process.env.CORS_ORIGINS || "http://localhost:5173";
 
 // 2. Database & Better Auth
-process.env.DATABASE_URL =
-  process.env.DATABASE_URL || "postgresql://postgres:postgres@localhost:5432/internflare_test";
+process.env.MONGODB_URI =
+  process.env.MONGODB_URI || "mongodb://127.0.0.1:27017/internflare_test";
 process.env.BETTER_AUTH_SECRET =
   process.env.BETTER_AUTH_SECRET || "a-random-secret-that-is-at-least-32-characters-long";
 process.env.BETTER_AUTH_URL =

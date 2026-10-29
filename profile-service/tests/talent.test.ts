@@ -3,7 +3,7 @@ import test from "node:test";
 import { TalentController } from "../src/controllers/talent.controller.js";
 import { requireAuth } from "../src/middleware/auth.js";
 import { TalentModel } from "../src/models/talent.model.js";
-import { pool } from "../src/db/pool.js";
+import { TalentProfileDocument } from "../src/models/talent.schema.js";
 import { openApiDocument } from "../src/docs/openapi.js";
 import { calculateProfileCompleteness } from "../src/services/completeness.service.js";
 import type {
@@ -480,68 +480,59 @@ test("Suite 4: Talent Controller Endpoints", async (t) => {
 });
 
 // ============================================================================
-// SUITE 5: Talent Model Integration with PostgreSQL Pool Mock
+// SUITE 5: Talent Model persistence contract with Mongoose model mocks
 // ============================================================================
-test("Suite 5: Talent Model Database Queries", async (t) => {
-  const origQuery = pool.query;
+test("Suite 5: Talent Model Mongoose Queries", async (t) => {
+  const model = TalentProfileDocument as any;
+  const originalFindOne = model.findOne;
+  const originalDeleteOne = model.deleteOne;
+  const now = new Date().toISOString();
+  const profileDocument = {
+    _id: "507f1f77bcf86cd799439011",
+    user_id: "user-abc",
+    full_name: "Test User",
+    phone: "123",
+    country: "US",
+    location: "NYC",
+    headline: "Dev",
+    education: [],
+    experience: [],
+    skills: ["Node.js"],
+    preferred_roles: ["Dev"],
+    availability: "immediate",
+    work_arrangement_pref: "remote",
+    career_goals: "Build cool things",
+    cv_url: null,
+    avatar_url: null,
+    profile_completeness: 50,
+    readiness_score: 0,
+    created_at: now,
+    updated_at: now,
+  };
 
-  await t.test("findByUserId executes query and maps row", async () => {
-    (pool as any).query = async (sql: string, params: any[]) => {
-      assert.ok(sql.includes("FROM talent_profiles"));
-      assert.equal(params[0], "user-abc");
-      return {
-        rows: [
-          {
-            id: "prof-1",
-            user_id: "user-abc",
-            full_name: "Test User",
-            phone: "123",
-            country: "US",
-            location: "NYC",
-            headline: "Dev",
-            education: JSON.stringify([]),
-            experience: JSON.stringify([]),
-            skills: ["Node.js"],
-            preferred_roles: ["Dev"],
-            availability: "immediate",
-            work_arrangement_pref: "remote",
-            career_goals: "Build cool things",
-            cv_url: null,
-            profile_completeness: 50,
-            readiness_score: 0,
-            created_at: new Date().toISOString(),
-            updated_at: new Date().toISOString(),
-          },
-        ],
-      };
+  await t.test("findByUserId reads and maps a profile document", async () => {
+    model.findOne = (filter: any) => {
+      assert.deepEqual(filter, { user_id: "user-abc" });
+      return { lean: async () => profileDocument };
     };
-
-    try {
-      const profile = await TalentModel.findByUserId("user-abc");
-      assert.ok(profile !== null);
-      assert.equal(profile.id, "prof-1");
-      assert.equal(profile.user_id, "user-abc");
-      assert.equal(profile.full_name, "Test User");
-      assert.deepEqual(profile.skills, ["Node.js"]);
-    } finally {
-      pool.query = origQuery;
-    }
+    const profile = await TalentModel.findByUserId("user-abc");
+    assert.ok(profile);
+    assert.equal(profile.id, "507f1f77bcf86cd799439011");
+    assert.equal(profile.user_id, "user-abc");
+    assert.equal(profile.full_name, "Test User");
+    assert.deepEqual(profile.skills, ["Node.js"]);
   });
 
-  await t.test("deleteByUserId returns true when row was deleted", async () => {
-    (pool as any).query = async (sql: string, params: any[]) => {
-      assert.ok(sql.includes("DELETE FROM talent_profiles"));
-      assert.equal(params[0], "user-xyz");
-      return { rowCount: 1 };
+  await t.test("deleteByUserId reports whether a profile was deleted", async () => {
+    model.deleteOne = async (filter: any) => {
+      assert.deepEqual(filter, { user_id: "user-xyz" });
+      return { deletedCount: 1 };
     };
-
-    try {
-      const deleted = await TalentModel.deleteByUserId("user-xyz");
-      assert.equal(deleted, true);
-    } finally {
-      pool.query = origQuery;
-    }
+    assert.equal(await TalentModel.deleteByUserId("user-xyz"), true);
   });
+
+  model.findOne = originalFindOne;
+  model.deleteOne = originalDeleteOne;
 });
 
 // ============================================================================

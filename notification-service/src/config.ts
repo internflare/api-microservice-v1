@@ -1,16 +1,15 @@
 import "dotenv/config";
 
-// Validate that required environment variables are present and correctly formatted.
 function requireEnv(name: string): string {
   const value = process.env[name]?.trim();
   if (!value) {
     throw new Error(`Missing required environment variable: ${name}`);
   }
-
   return value;
 }
-// get variables
-const databaseUrl = requireEnv("DATABASE_URL");
+
+const mongodbUri = requireEnv("MONGODB_URI");
+const mongodbDbName = process.env.MONGODB_DB_NAME?.trim() || undefined;
 const resendApiKey = requireEnv("RESEND_API_KEY");
 const nodeEnv = requireEnv("NODE_ENV");
 
@@ -24,7 +23,6 @@ if (apiKey.length < 32) {
   throw new Error("NOTIFICATION_API_KEY must be at least 32 characters long");
 }
 
-// Parse SENTRY_TRACES_SAMPLE_RATE as a number between 0 and 1, defaulting to 0.1 if not set.
 function parseSampleRate(value: string | undefined): number {
   if (!value?.trim()) return 0.1;
   const rate = Number(value);
@@ -54,12 +52,11 @@ if (!["http:", "https:"].includes(new URL(frontendUrl).protocol)) {
   throw new Error("FRONTEND_URL must use the http:// or https:// protocol");
 }
 
-// Export a single config object for use throughout the notification service.
 const config = {
   nodeEnv,
   port,
-  databaseUrl,
-  databaseSsl: process.env.DATABASE_SSL?.trim().toLowerCase() === "true",
+  mongodbUri,
+  mongodbDbName,
   resendApiKey,
   emailFrom,
   apiKey,

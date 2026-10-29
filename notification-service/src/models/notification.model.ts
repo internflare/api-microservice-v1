@@ -1,10 +1,10 @@
-import type { QueryResultRow } from "pg";
-import { database } from "../db/pool.js";
-import type { NotificationType } from "../services/email-notification.service.js";
+import { randomUUID } from "node:crypto";
+import mongoose, { Schema } from "mongoose";
+import { notificationTypes, type NotificationType } from "../services/email-notification.service.js";
 
 export type NotificationChannel = "email" | "in_app";
 
-export interface NotificationRecord extends QueryResultRow {
+export interface NotificationRecord {
   id: string;
   user_id: string;
   type: NotificationType;
@@ -24,52 +24,93 @@ export interface NewNotification {
   body: string;
   link?: string | null;
   channel: NotificationChannel;
+  dedupe_key?: "welcome";
 }
 
-// Return a previously saved record so RabbitMQ redeliveries don't resend welcome emails.
+interface NotificationDocument extends NotificationRecord {
+  dedupe_key?: "welcome";
+}
+
+const notificationSchema = new Schema<NotificationDocument>(
+  {
+    id: { type: String, required: true, unique: true },
+    user_id: { type: String, required: true },
+    type: {
+      type: String,
+      required: true,
+      enum: notificationTypes,
+    },
+    title: { type: String, required: true },
+    body: { type: String, required: true },
+    link: { type: String, default: null },
+    channel: { type: String, required: true, enum: ["email", "in_app"] },
+    read_at: { type: Date, default: null },
+    created_at: { type: Date, required: true, default: Date.now },
+    dedupe_key: { type: String, select: false },
+  },
+  { versionKey: false, id: false },
+);
+
+notificationSchema.index(
+  { user_id: 1, created_at: -1 },
+  { name: "notifications_user_created_idx" },
+);
+notificationSchema.index(
+  { user_id: 1, created_at: -1 },
+  {
+    partialFilterExpression: { read_at: null },
+    name: "notifications_unread_user_idx",
+  },
+);
+notificationSchema.index(
+  { user_id: 1 },
+  {
+    unique: true,
+    partialFilterExpression: { dedupe_key: "welcome" },
+    name: "one_welcome_notification_per_user",
+  },
+);
+
+export const Notification =
+  mongoose.models.Notification ??
+  mongoose.model<NotificationDocument>("Notification", notificationSchema);
+
+function toNotificationRecord(
+  notification: NotificationDocument,
+): NotificationRecord {
+  return {
+    id: notification.id,
+    user_id: notification.user_id,
+    type: notification.type,
+    title: notification.title,
+    body: notification.body,
+    link: notification.link,
+    channel: notification.channel,
+    read_at: notification.read_at,
+    created_at: notification.created_at,
+  };
+}
+
 export async function findNotificationById(
   id: string,
 ): Promise<NotificationRecord | undefined> {
-  const result = await database.query<NotificationRecord>(
-    `SELECT id, user_id, type, title, body, link, channel, read_at, created_at
-     FROM notifications
-     WHERE id = $1`,
-    [id],
-  );
-  return result.rows[0];
+  const notification = await Notification.findOne({ id }).exec();
+  return notification ? toNotificationRecord(notification) : undefined;
 }
 
-// Persist notification content using parameterized SQL and return the database record.
 export async function createNotification(
   notification: NewNotification,
 ): Promise<NotificationRecord> {
-  const result = await database.query<NotificationRecord>(
-    `INSERT INTO notifications (
-       id, user_id, type, title, body, link, channel
-     )
-     VALUES (
-       COALESCE($1::uuid, gen_random_uuid()), $2, $3, $4, $5, $6, $7
-     )
-     RETURNING id, user_id, type, title, body, link, channel, read_at, created_at`,
-    [
-      notification.id ?? null,
-      notification.user_id,
-      notification.type,
-      notification.title,
-      notification.body,
-      notification.link ?? null,
-      notification.channel,
-    ],
-  );
-
-  const record = result.rows[0];
-  if (!record) {
-    throw new Error("PostgreSQL did not return the inserted notification");
-  }
-  return record;
+  const created = await Notification.create({
+    ...notification,
+    id: notification.id ?? randomUUID(),
+    link: notification.link ?? null,
+  });
+  return toNotificationRecord(created);
 }
 
-// Used by the health route to verify actual database connectivity.
 export async function checkDatabaseConnection(): Promise<void> {
-  await database.query("SELECT 1");
+  if (mongoose.connection.readyState !== 1) {
+    throw new Error("MongoDB is not connected");
+  }
 }

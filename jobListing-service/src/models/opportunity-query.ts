@@ -29,17 +29,26 @@ const opportunityQuerySchema = z.object({
     .transform((value) => value.split(",").map((skill) => skill.trim()))
     .pipe(z.array(z.string().min(1)).max(100))
     .optional(),
-  company_id: z.uuid().optional(),
+  company_id: z.string().regex(/^[a-f\d]{24}$/i).optional(),
 });
 
 export type OpportunitySortColumn =
-  | "created_at"
-  | "updated_at"
-  | "application_deadline"
-  | "start_date"
-  | "title";
+  "created_at" | "updated_at" | "application_deadline" | "start_date" | "title";
 
 export interface OpportunityQueryFilters {
+  opportunityType?: string;
+  employmentType?: string;
+  experienceLevel?: string;
+  workArrangement?: string;
+  country?: string;
+  status?: string;
+  isPaid?: boolean;
+  search?: string;
+  skills?: string[];
+  companyId?: string;
+}
+
+export interface BookmarksQueryFilters {
   opportunityType?: string;
   employmentType?: string;
   experienceLevel?: string;
@@ -68,7 +77,7 @@ export class OpportunityQuery {
   private constructor(private readonly parameters: ParsedOpportunityQuery) {}
 
   /**
-   * Parse Express query parameters without allowing unchecked values into SQL.
+   * Parse Express query parameters without allowing unchecked values into database queries.
    */
   static fromUrlParameters(parameters: unknown) {
     const parsed = opportunityQuerySchema.safeParse(parameters);
@@ -85,7 +94,7 @@ export class OpportunityQuery {
   }
 
   get sortBy(): OpportunitySortColumn {
-    // The schema whitelist makes this safe to interpolate as a SQL identifier.
+    // The schema whitelist makes this safe to use as a database sort field.
     return this.parameters.sort_by;
   }
 
@@ -94,7 +103,7 @@ export class OpportunityQuery {
   }
 
   /**
-   * Return normalized search filters for the parameterized database query.
+   * Return normalized search filters for the database query.
    */
   get filters(): OpportunityQueryFilters {
     const {
@@ -123,9 +132,39 @@ export class OpportunityQuery {
       companyId,
     };
   }
+  /**
+   * Return normalized search filters for the database query.
+   */
+  get saved_filters(): BookmarksQueryFilters {
+    const {
+      opportunity_type: opportunityType,
+      employment_type: employmentType,
+      experience_level: experienceLevel,
+      work_arrangement: workArrangement,
+      country,
+      status,
+      is_paid: isPaid,
+      search,
+      skills,
+      company_id: companyId,
+    } = this.parameters;
+
+    return {
+      opportunityType,
+      employmentType,
+      experienceLevel,
+      workArrangement,
+      country,
+      status,
+      isPaid,
+      search,
+      skills,
+      companyId,
+    };
+  }
 
   /**
-   * Calculate the SQL offset and the response metadata from the same validated page values.
+   * Calculate the pagination offset and the response metadata from the same validated page values.
    */
   get offset(): number {
     return (this.page - 1) * this.pageSize;

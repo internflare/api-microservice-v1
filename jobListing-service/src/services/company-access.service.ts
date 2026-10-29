@@ -20,6 +20,7 @@ export async function requireCompanyAdmin(
 ): Promise<{ id: string; name: string }> {
   let response: Response;
   try {
+    // checking through fetch request
     response = await fetch(
       new URL(
         `/internal/companies/${encodeURIComponent(companyId)}/access/${encodeURIComponent(userId)}`,

@@ -1,9 +1,10 @@
-import { Router } from "express";
+﻿import { Router } from "express";
 import {
   acceptMembershipInvite,
   createCompany,
   getCompanyById,
   inviteCompanyMember,
+  inviteTeamMembers,
   listMyAdminCompanies,
   listAllPostedJobs,
   listCompanyMembers,
@@ -12,7 +13,14 @@ import {
   submitCompanyVerification,
   updateCompany,
 } from "../controllers/company.controller.js";
-import { requireAuth } from "../middleware/auth.js";
+import { optionalAuth, requireAuth } from "../middleware/auth.js";
+import {
+  followCompanyHandler,
+  getCompanyTalentPool,
+  getPublicCompany,
+  unfollowCompanyHandler,
+} from "../controllers/company-public.controller.js";
+import { employerSubmission } from "../middleware/upload.js";
 import {
   requireCompanyMember,
   requireCompanyRole,
@@ -23,18 +31,37 @@ import {
   inviteMemberSchema,
   memberParamSchema,
   submitVerificationSchema,
+  teamInvitesSchema,
   updateCompanySchema,
-  uuidParamSchema,
+  objectIdParamSchema,
 } from "../validators/company.validator.js";
 
 export const companyRoutes = Router();
 
-// All company operations require an active authenticated user
+// Public company page: open to visitors, enriched with `is_following` when signed in.
+companyRoutes.get(
+  "/:id/public",
+  validateParams(objectIdParamSchema),
+  optionalAuth,
+  getPublicCompany,
+);
+
+// All remaining company operations require an active authenticated user
 companyRoutes.use(requireAuth);
+
+companyRoutes.put("/:id/follow", validateParams(objectIdParamSchema), followCompanyHandler);
+companyRoutes.delete("/:id/follow", validateParams(objectIdParamSchema), unfollowCompanyHandler);
+companyRoutes.get(
+  "/:id/talent-pool",
+  validateParams(objectIdParamSchema),
+  requireCompanyMember,
+  getCompanyTalentPool,
+);
 
 // 1. Company CRUD
 companyRoutes.post(
   "/employer-onboarding",
+  employerSubmission,
   validateBody(createCompanySchema),
   createCompany,
 );
@@ -45,14 +72,14 @@ companyRoutes.get("/mine", listMyAdminCompanies);
 
 companyRoutes.get(
   "/:id",
-  validateParams(uuidParamSchema),
+  validateParams(objectIdParamSchema),
   requireCompanyMember,
   getCompanyById,
 );
 
 companyRoutes.patch(
   "/:id",
-  validateParams(uuidParamSchema),
+  validateParams(objectIdParamSchema),
   validateBody(updateCompanySchema),
   requireCompanyMember,
   requireCompanyRole(["ADMIN"]),
@@ -62,23 +89,32 @@ companyRoutes.patch(
 // 2. Member Management
 companyRoutes.post(
   "/:id/members/invite",
-  validateParams(uuidParamSchema),
+  validateParams(objectIdParamSchema),
   validateBody(inviteMemberSchema),
   requireCompanyMember,
   requireCompanyRole(["ADMIN"]),
   inviteCompanyMember,
 );
 
+companyRoutes.post(
+  "/:id/invites",
+  validateParams(objectIdParamSchema),
+  validateBody(teamInvitesSchema),
+  requireCompanyMember,
+  requireCompanyRole(["ADMIN"]),
+  inviteTeamMembers,
+);
+
 companyRoutes.get(
   "/:id/members",
-  validateParams(uuidParamSchema),
+  validateParams(objectIdParamSchema),
   requireCompanyMember,
   listCompanyMembers,
 );
 
 companyRoutes.post(
   "/:id/members/accept",
-  validateParams(uuidParamSchema),
+  validateParams(objectIdParamSchema),
   acceptMembershipInvite,
 );
 
@@ -93,7 +129,7 @@ companyRoutes.delete(
 // 3. Verification Submissions
 companyRoutes.post(
   "/:id/verifications",
-  validateParams(uuidParamSchema),
+  validateParams(objectIdParamSchema),
   validateBody(submitVerificationSchema),
   requireCompanyMember,
   requireCompanyRole(["ADMIN"]),
@@ -102,7 +138,8 @@ companyRoutes.post(
 
 companyRoutes.get(
   "/:id/verifications",
-  validateParams(uuidParamSchema),
+  validateParams(objectIdParamSchema),
   requireCompanyMember,
   listCompanyVerifications,
 );
+

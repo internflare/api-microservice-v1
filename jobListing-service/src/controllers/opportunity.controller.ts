@@ -1,5 +1,4 @@
 import type { RequestHandler } from "express";
-import { z } from "zod";
 import {
   createOpportunity,
   deleteOpportunity,
@@ -9,183 +8,104 @@ import {
   updateOpportunity,
   type OpportunityRecord,
 } from "../models/opportunity.model.js";
+import { checkAdmin, findUserContact } from "../utils/helperFunc.js";
+import { checkEligibility } from "../services/eligibility.service.js";
+import { recordUniqueView } from "../models/opportunity-view.model.js";
 import { OpportunityQuery } from "../models/opportunity-query.js";
 import {
   publishJobApplication,
   publishJobCreated,
 } from "../services/notification-publisher.service.js";
+import {
+  companyListIndexKey,
+  invalidateCompany,
+  PUBLIC_LIST_TTL_SECONDS,
+  publicListIndexKey,
+  setCached,
+} from "../services/cache.service.js";
 import { AppError } from "../utils/appError.js";
+import { forwardError } from "../utils/forward-error.js";
 import { logger } from "../utils/logger.js";
 import { requireCompanyAdmin } from "../services/company-access.service.js";
-
-const recipientSchema = z.object({
-  email: z.email(),
-  name: z.string().trim().min(1).max(120).optional(),
-});
-
-const nullableText = (maximum = 5000) =>
-  z.string().trim().max(maximum).nullable().optional();
-const nullableMoney = z
-  .number()
-  .finite()
-  .min(0)
-  .max(9_999_999_999.99)
-  .transform(String)
-  .nullable()
-  .optional();
-
-const opportunityFields = {
-  external_apply_url: z.url().nullable().optional(),
-  title: z.string().trim().min(1).max(500),
-  description: z.string().trim().min(1).max(50_000),
-  responsibilities: nullableText(50_000),
-  opportunity_type: z.string().trim().min(1).max(100),
-  employment_type: nullableText(100),
-  experience_level: nullableText(100),
-  is_paid: z.boolean(),
-  compensation_min: nullableMoney,
-  compensation_max: nullableMoney,
-  currency: z
-    .string()
-    .trim()
-    .regex(/^[A-Za-z]{3}$/)
-    .transform((value) => value.toUpperCase())
-    .nullable()
-    .optional(),
-  payment_frequency: nullableText(100),
-  country: z
-    .string()
-    .trim()
-    .regex(/^[A-Za-z]{2}$/)
-    .transform((value) => value.toUpperCase())
-    .nullable()
-    .optional(),
-  location: nullableText(255),
-  work_arrangement: z.string().trim().min(1).max(100),
-  skills_required: z
-    .array(z.string().trim().min(1).max(100))
-    .max(100)
-    .optional(),
-  duration_weeks: z.number().int().positive().max(520).nullable().optional(),
-  start_date: z.iso.date().nullable().optional(),
-  application_deadline: z
-    .iso
-    .datetime()
-    .transform((value) => new Date(value))
-    .nullable()
-    .optional(),
-  openings: z.number().int().positive().max(1_000_000).nullable().optional(),
-  status: z.enum(["draft", "published", "paused", "closed"]).optional(),
-};
-
-const createOpportunitySchema = z
-  .object({
-    company_id: z.uuid(),
-    source_type: z.string().trim().min(1).max(100).default("employer"),
-    ...opportunityFields,
-    follower_recipients: z.array(recipientSchema).max(10_000).optional(),
-  })
-  .strict()
-  .refine(
-    (data) =>
-      data.compensation_min == null ||
-      data.compensation_max == null ||
-      data.compensation_min <= data.compensation_max,
-    {
-      message: "compensation_min cannot exceed compensation_max",
-      path: ["compensation_max"],
-    },
-  );
-
-const updateOpportunitySchema = z
-  .object(opportunityFields)
-  .partial()
-  .strict()
-  .refine((input) => Object.keys(input).length > 0, {
-    message: "At least one editable field is required",
-  })
-  .refine(
-    (data) =>
-      data.compensation_min == null ||
-      data.compensation_max == null ||
-      data.compensation_min <= data.compensation_max,
-    {
-      message: "compensation_min cannot exceed compensation_max",
-      path: ["compensation_max"],
-    },
-  );
-
-const applicationSchema = z.object({
-  applicant_name: z.string().trim().min(1).max(120),
-  applicant_email: z.email(),
-  // Placeholder until company records can provide the hiring contact email.
-  company_email: z.email(),
-  company_contact_name: z.string().trim().min(1).max(120).optional(),
-});
-
-// Resolve the company for management listings. A JSON body is honoured for API clients;
-// browsers cannot send GET bodies, so `company_id` + `scope=company` in the query is also accepted.
-const resolveManagedCompanyId = (
-  request: Parameters<RequestHandler>[0],
-): unknown => {
-  const bodyCompanyId = (request.body as { company_id?: unknown } | undefined)
-    ?.company_id;
-  if (bodyCompanyId !== undefined) return bodyCompanyId;
-  return request.query.scope === "company" ? request.query.company_id : undefined;
-};
+import { loadManagedOpportunity, loadPublishedOpportunity } from "../services/opportunity-access.service.js";
+import {
+  companyListPaginationSchema,
+  createOpportunitySchema,
+  formatValidationError,
+  objectIdSchema,
+  requireUserId,
+  resolveManagedCompanyId,
+  updateOpportunitySchema,
+} from "../validators/opportunity.validator.js";
 
 // Only active company administrators may retrieve their company's full listing set, including drafts.
-const listCompanyOpportunitiesHandler: RequestHandler = async (
+const listOpportunityByCompany: RequestHandler = async (
   request,
   response,
   next,
 ) => {
-  const parsedCompanyId = z.uuid().safeParse(resolveManagedCompanyId(request));
-  const parsedPagination = z
-    .object({
-      page: z.coerce.number().int().min(1).max(1_000_000).default(1),
-      page_size: z.coerce.number().int().min(1).max(100).default(20),
-    })
-    .safeParse(request.query);
+  // Parse and validate the company ID and pagination parameters from the request.
+  const parsedCompanyId = objectIdSchema.safeParse(
+    resolveManagedCompanyId(request),
+  );
+  const parsedPagination = companyListPaginationSchema.safeParse(request.query);
 
   if (!parsedCompanyId.success || !parsedPagination.success) {
     response.status(400).json({
       error: "Invalid company listing request",
       details: parsedPagination.success
         ? undefined
-        : z.flattenError(parsedPagination.error),
+        : formatValidationError(parsedPagination.error),
     });
     return;
   }
 
   try {
-    if (!request.user?.id) {
-      throw new AppError("Authentication is required", 401);
+    const userId = requireUserId(request);
+    const isAdmin = userId
+      ? await checkAdmin(parsedCompanyId.data, userId)
+      : false;
+    if (!isAdmin) {
+      throw new AppError("Active company administrator access required", 403);
     }
-    await requireCompanyAdmin(parsedCompanyId.data, request.user.id);
-    const result = await listCompanyOpportunities(
-      parsedCompanyId.data,
-      parsedPagination.data.page,
-      parsedPagination.data.page_size,
-    );
-    response.json({
-      data: result.items,
-      total: result.total,
-      pagination: {
-        page: parsedPagination.data.page,
-        page_size: parsedPagination.data.page_size,
-        total_items: result.total,
-        total_pages: Math.ceil(result.total / parsedPagination.data.page_size),
-      },
-      sorting: { sort_by: "created_at", sort_order: "desc" },
-    });
+    // Middleware result: cached body on a hit, null on a miss (access check above ran either way).
+    let body = response.locals.cached as Record<string, unknown> | null;
+    if (!body) {
+      const result = await listCompanyOpportunities(
+        parsedCompanyId.data,
+        parsedPagination.data.page,
+        parsedPagination.data.page_size,
+      );
+      body = {
+        data: result.items,
+        total: result.total,
+        pagination: {
+          page: parsedPagination.data.page,
+          page_size: parsedPagination.data.page_size,
+          total_items: result.total,
+          total_pages: Math.ceil(
+            result.total / parsedPagination.data.page_size,
+          ),
+        },
+        sorting: { sort_by: "created_at", sort_order: "desc" },
+      };
+      // Cache miss: save the fresh body (no expiry) before responding.
+      if (response.locals.cacheKey) {
+        await setCached(
+          response.locals.cacheKey,
+          body,
+          companyListIndexKey(parsedCompanyId.data),
+        );
+      }
+    }
+    response.status(200).json(body);
   } catch (error) {
-    if (error instanceof AppError) {
-      next(error);
-      return;
-    }
-    logger("error", "Failed to list company opportunities:", error);
-    next(new AppError("Could not list company opportunities", 500));
+    forwardError(
+      error,
+      next,
+      "Failed to list company opportunities:",
+      "Could not list company opportunities",
+    );
   }
 };
 
@@ -195,33 +115,40 @@ const createOpportunityHandler: RequestHandler = async (
   response,
   next,
 ) => {
+  // Ensure the user is an active admin of the company before proceeding
   const parsed = createOpportunitySchema.safeParse(request.body);
   if (!parsed.success) {
     response.status(400).json({
       error: "Invalid opportunity payload",
-      details: z.flattenError(parsed.error),
+      details: formatValidationError(parsed.error),
     });
     return;
   }
 
   try {
-    if (!request.user?.id) {
-      throw new AppError("Authentication is required", 401);
-    }
-    const company = await requireCompanyAdmin(
-      parsed.data.company_id,
-      request.user.id,
-    );
-    const { follower_recipients, company_id: _companyId, ...opportunityInput } =
-      parsed.data;
+    const userId = requireUserId(request);
+    const isAdmin = await checkAdmin(parsed.data.company_id, userId);
+    if (!isAdmin)
+      throw new AppError("Active company administrator access required", 403);
+    // const company = await requireCompanyAdmin(parsed.data.company_id, userId)
+    const {
+      follower_recipients,
+      company_id: _companyId,
+      ...opportunityInput
+    } = parsed.data;
+
+    logger("info", "Parsed opportunity payload:", parsed);
     const opportunity: OpportunityRecord = await createOpportunity({
       ...opportunityInput,
-      company_id: company.id,
-      external_company_name: company.name,
-      created_by: request.user.id,
+      company_id: isAdmin.id,
+      external_company_name: isAdmin.name,
+      created_by: userId,
       skills_required: opportunityInput.skills_required ?? [],
       status: opportunityInput.status ?? "published",
     });
+
+    // New listing makes every cached list for this company stale.
+    await invalidateCompany(opportunity.company_id ?? isAdmin.id);
 
     let notificationStatus =
       opportunity.status !== "published"
@@ -245,95 +172,121 @@ const createOpportunityHandler: RequestHandler = async (
       notification_status: notificationStatus,
     });
   } catch (error) {
-    if (error instanceof AppError) {
-      next(error);
-      return;
-    }
-    logger("error", "Failed to create opportunity:", error);
-    next(new AppError("Could not create opportunity", 500));
+    forwardError(
+      error,
+      next,
+      "Failed to create opportunity:",
+      "Could not create opportunity",
+    );
   }
 };
 
+// Handler for editing an opportunity; only active admins of the owning company may do so.
 const updateOpportunityHandler: RequestHandler = async (
   request,
   response,
   next,
 ) => {
-  const parsedId = z.uuid().safeParse(request.params.id);
+  const parsedId = objectIdSchema.safeParse(request.params.id);
   const parsedBody = updateOpportunitySchema.safeParse(request.body);
   if (!parsedId.success || !parsedBody.success) {
     response.status(400).json({
       error: "Invalid opportunity update",
       details: parsedBody.success
         ? undefined
-        : z.flattenError(parsedBody.error),
+        : formatValidationError(parsedBody.error),
     });
     return;
   }
 
   try {
-    if (!request.user?.id) {
-      throw new AppError("Authentication is required", 401);
-    }
-    const opportunity = await getOpportunityById(parsedId.data);
-    if (!opportunity) {
-      response.status(404).json({ error: "Opportunity not found" });
-      return;
-    }
-    if (!opportunity.company_id) {
-      throw new AppError("Opportunity is not owned by a company", 403);
-    }
-    await requireCompanyAdmin(opportunity.company_id, request.user.id);
+    // Load the opportunity and ensure the user has management rights for it
+    const opportunity = await loadManagedOpportunity(
+      parsedId.data,
+      requireUserId(request),
+    );
+
+    // Ensure the user is an active admin of the company before updating the opportunity
+    const isAdmin = opportunity
+      ? await checkAdmin(opportunity.company_id, requireUserId(request))
+      : (() => {
+          throw new AppError("Job opportunity not found", 404);
+        })();
+
+    // job exists but user is not an admin of the company
+    if (!isAdmin && opportunity)
+      throw new AppError("User is not an active admin of the company", 403);
+
+    // update opportunity
     const updated = await updateOpportunity(
       parsedId.data,
       opportunity.company_id,
       parsedBody.data,
     );
-    if (!updated) {
-      response.status(404).json({ error: "Opportunity not found" });
-      return;
-    }
-    response.json({ opportunity: updated });
+
+    // if update fails
+    if (!updated)
+      throw new AppError("Unable to update opportunity, try again", 400);
+
+    // Drop cached lists and this listing's detail so the next read refetches.
+    await invalidateCompany(opportunity.company_id, parsedId.data);
+
+    response.status(200).json({ opportunity: updated });
   } catch (error) {
-    next(error);
+    forwardError(
+      error,
+      next,
+      "Failed to update opportunity:",
+      "Could not update opportunity",
+    );
   }
 };
 
+// Handler for deleting an opportunity; only active admins of the owning company may do so.
 const deleteOpportunityHandler: RequestHandler = async (
   request,
   response,
   next,
 ) => {
-  const parsedId = z.uuid().safeParse(request.params.id);
+  const parsedId = objectIdSchema.safeParse(request.params.id);
   if (!parsedId.success) {
-    response.status(400).json({ error: "Opportunity id must be a UUID" });
+    response.status(400).json({ error: "Opportunity id must be a valid id" });
     return;
   }
 
   try {
-    if (!request.user?.id) {
-      throw new AppError("Authentication is required", 401);
-    }
-    const opportunity = await getOpportunityById(parsedId.data);
-    if (!opportunity) {
-      response.status(404).json({ error: "Opportunity not found" });
-      return;
-    }
-    if (!opportunity.company_id) {
-      throw new AppError("Opportunity is not owned by a company", 403);
-    }
-    await requireCompanyAdmin(opportunity.company_id, request.user.id);
+    // Load the opportunity and ensure the user has management rights for it
+    const opportunity = await loadManagedOpportunity(
+      parsedId.data,
+      requireUserId(request),
+    );
+
+    // Ensure the user is an active admin of the company before deleting the opportunity
+    const isAdmin = opportunity
+      ? await checkAdmin(opportunity.company_id, requireUserId(request))
+      : (() => {
+          throw new AppError("Job opportunity not found", 404);
+        })();
+
+    // job exists but user is not an admin of the company
+    if (!isAdmin && opportunity)
+      throw new AppError("User is not an active admin of the company", 403);
+
+    //
     const deleted = await deleteOpportunity(
       parsedId.data,
       opportunity.company_id,
     );
-    if (!deleted) {
-      response.status(404).json({ error: "Opportunity not found" });
-      return;
-    }
+    if (!deleted) throw new AppError("Unable to delete opportunity", 400);
+    await invalidateCompany(opportunity.company_id, parsedId.data);
     response.status(204).end();
   } catch (error) {
-    next(error);
+    forwardError(
+      error,
+      next,
+      "Failed to delete opportunity:",
+      "Could not delete opportunity",
+    );
   }
 };
 
@@ -345,7 +298,8 @@ const listOpportunitiesHandler: RequestHandler = (request, response, next) => {
       next(new AppError("Authentication is required", 401));
       return;
     }
-    void listCompanyOpportunitiesHandler(request, response, next);
+    //
+    void listOpportunityByCompany(request, response, next);
     return;
   }
   void listPublicOpportunitiesHandler(request, response, next);
@@ -363,7 +317,7 @@ const listPublicOpportunitiesHandler: RequestHandler = async (
   if (!parsed.success) {
     response.status(400).json({
       error: "Invalid opportunity filters",
-      details: z.flattenError(parsed.error),
+      details: formatValidationError(parsed.error),
     });
     return;
   }
@@ -371,32 +325,43 @@ const listPublicOpportunitiesHandler: RequestHandler = async (
   try {
     const query = parsed.data;
     if (query.filters.status && query.filters.status !== "published") {
-      if (!request.user?.id) {
-        throw new AppError("Authentication is required", 401);
-      }
+      const userId = requireUserId(request);
       if (!query.filters.companyId) {
         throw new AppError(
           "company_id is required when listing unpublished opportunities",
           400,
         );
       }
-      await requireCompanyAdmin(query.filters.companyId, request.user.id);
+      await checkAdmin(query.filters.companyId, userId);
     }
-    const result = await listOpportunities(query);
 
-    response.json({
-      data: result.items, // Return the list of opportunities
-      total: result.total, // Total number of opportunities matching the query
-      pagination: query.pagination(result.total),
-      sorting: query.sorting(),
-    });
-  } catch (error) {
-    if (error instanceof AppError) {
-      next(error);
-      return;
+    // Middleware result: cached body on a hit, null on a miss.
+    let body = response.locals.cached as Record<string, unknown> | null;
+    if (!body) {
+      const result = await listOpportunities(query);
+      body = {
+        data: result.items, // Return the list of opportunities
+        total: result.total, // Total number of opportunities matching the query
+        pagination: query.pagination(result.total),
+        sorting: query.sorting(),
+      };
+      if (response.locals.cacheKey) {
+        await setCached(
+          response.locals.cacheKey,
+          body,
+          publicListIndexKey,
+          PUBLIC_LIST_TTL_SECONDS,
+        );
+      }
     }
-    logger("error", "Failed to list opportunities:", error);
-    next(new AppError("Could not list opportunities", 500));
+    response.json(body);
+  } catch (error) {
+    forwardError(
+      error,
+      next,
+      "Failed to list opportunities:",
+      "Could not list opportunities",
+    );
   }
 };
 
@@ -406,91 +371,154 @@ const getOpportunityHandler: RequestHandler = async (
   response,
   next,
 ) => {
-  const parsedId = z.uuid().safeParse(request.params.id);
-  if (!parsedId.success) {
-    response.status(400).json({ error: "Opportunity id must be a UUID" });
-    return;
-  }
-
   try {
-    const opportunity = await getOpportunityById(parsedId.data);
+    // Validate the opportunity ID from the request parameters. It must be an ObjectId.
+    const parsedId = objectIdSchema.safeParse(request.params.id);
+    if (!parsedId.success) {
+      throw new AppError("Opportunity id must be a valid id", 400);
+    }
+
+    // Middleware result: cached payload on a hit, null on a miss.
+    const cached = response.locals.cached as {
+      opportunity: OpportunityRecord;
+    } | null;
+    const opportunity =
+      cached?.opportunity ?? (await getOpportunityById(parsedId.data));
     if (!opportunity) {
       response.status(404).json({ error: "Opportunity not found" });
       return;
     }
-    if (opportunity.status !== "published") {
-      if (!request.user?.id) {
-        throw new AppError("Authentication is required", 401);
-      }
-      if (!opportunity.company_id) {
-        throw new AppError("Opportunity is not owned by a company", 403);
-      }
-      await requireCompanyAdmin(opportunity.company_id, request.user.id);
+
+    // Access checks run for both hits and misses, so cached data never bypasses permissions.
+    const userId = requireUserId(request);
+    if (!opportunity.company_id) {
+      throw new AppError("Opportunity has no associated company", 404);
+    }
+    const isAdmin = await checkAdmin(opportunity.company_id, userId);
+    if (opportunity.status !== "published" && !isAdmin) {
+      // Unpublished listings are visible only to admins of the owning company.
+      throw new AppError("User is not an active admin of the company", 403);
+    }
+
+    // Cache miss: save the fresh record (only after access checks pass), then respond.
+    if (!cached && response.locals.cacheKey) {
+      await setCached(response.locals.cacheKey, { opportunity });
     }
     response.json({ opportunity });
   } catch (error) {
-    if (error instanceof AppError) {
-      next(error);
-      return;
-    }
-    logger("error", "Failed to get opportunity:", error);
-    next(new AppError("Could not get opportunity", 500));
+    forwardError(
+      error,
+      next,
+      "Failed to get opportunity:",
+      "Could not get opportunity",
+    );
   }
 };
 
-// Handler for notifying the company of a new application for an opportunity
+// GET /:id/eligibility: whether the signed-in talent may apply, based on their assessment for the listing's role.
+const getEligibilityHandler: RequestHandler = async (request, response, next) => {
+  try {
+    const userId = requireUserId(request);
+    const opportunity = await loadPublishedOpportunity(request.params.id);
+    response.json(await checkEligibility(opportunity, userId));
+  } catch (error) {
+    forwardError(
+      error,
+      next,
+      "Failed to check eligibility:",
+      "Could not check eligibility",
+    );
+  }
+};
+
+// POST /:id/view: counts one view per signed-in user per listing (repeat views and the
+// company's own admins are ignored, so employers see unique viewers, not impressions).
+const recordViewHandler: RequestHandler = async (request, response, next) => {
+  try {
+    const userId = requireUserId(request);
+    const opportunity = await loadPublishedOpportunity(request.params.id);
+
+    const isOwner =
+      opportunity.created_by === userId ||
+      (opportunity.company_id
+        ? Boolean(await checkAdmin(opportunity.company_id, userId))
+        : false);
+    if (isOwner) {
+      response.json({ counted: false });
+      return;
+    }
+
+    const counted = await recordUniqueView(opportunity.id, userId);
+    // Cached lists embed views_count, so a new unique view makes them stale.
+    if (counted && opportunity.company_id) {
+      await invalidateCompany(opportunity.company_id, opportunity.id);
+    }
+    response.json({ counted });
+  } catch (error) {
+    forwardError(
+      error,
+      next,
+      "Failed to record opportunity view:",
+      "Could not record view",
+    );
+  }
+};
+
+// POST /:id/applications: eligible talents apply; the applicant identity comes from the session, never the body.
 const notifyCompanyOfApplicationHandler: RequestHandler = async (
   request,
   response,
   next,
 ) => {
-  const parsedId = z.uuid().safeParse(request.params.id);
-  const parsedBody = applicationSchema.safeParse(request.body);
-  if (!parsedId.success || !parsedBody.success) {
-    response.status(400).json({
-      error: "Invalid application notification payload",
-      details: parsedBody.success
-        ? undefined
-        : z.flattenError(parsedBody.error),
-    });
-    return;
-  }
-
   try {
-    const opportunity = await getOpportunityById(parsedId.data);
-    if (!opportunity) {
-      response.status(404).json({ error: "Opportunity not found" });
+    const userId = requireUserId(request);
+    const applicantEmail = request.user?.email;
+    if (!applicantEmail) {
+      throw new AppError("Your account has no email address", 400);
+    }
+    const opportunity = await loadPublishedOpportunity(request.params.id);
+
+    const eligibility = await checkEligibility(opportunity, userId);
+    if (eligibility.state !== "eligible") {
+      response.status(403).json({
+        error: "You are not eligible to apply for this listing",
+        eligibility,
+      });
       return;
     }
 
-    // Queue the application notification to be sent to the company
-    await publishJobApplication(
-      opportunity,
-      {
-        name: parsedBody.data.applicant_name, // Applicant's name
-        email: parsedBody.data.applicant_email, // Applicant's email
-      },
-      {
-        email: parsedBody.data.company_email, // Company's email
-        name: parsedBody.data.company_contact_name, // Optional company's contact name
-      },
-    );
-    response.status(202).json({
-      status: "application_notification_queued",
-      note: "This endpoint queues the company email notification; application storage belongs to the application service.",
-    });
+    // Notify the listing creator; failing to queue the email must not hide a valid application.
+    const contact = opportunity.created_by
+      ? await findUserContact(opportunity.created_by)
+      : null;
+    if (contact) {
+      await publishJobApplication(
+        opportunity,
+        { name: request.user?.name ?? applicantEmail, email: applicantEmail },
+        contact,
+      );
+    } else {
+      logger("warn", `No contact found to notify for opportunity ${opportunity.id}`);
+    }
+    response.status(202).json({ status: "application_notification_queued" });
   } catch (error) {
-    logger("error", "Failed to queue application notification:", error);
-    next(new AppError("Could not queue application notification", 503));
+    forwardError(
+      error,
+      next,
+      "Failed to submit application:",
+      "Could not submit application",
+    );
   }
 };
 
 export {
-  listCompanyOpportunitiesHandler,
+  listOpportunityByCompany,
   createOpportunityHandler,
   listOpportunitiesHandler,
   getOpportunityHandler,
   updateOpportunityHandler,
   deleteOpportunityHandler,
   notifyCompanyOfApplicationHandler,
+  getEligibilityHandler,
+  recordViewHandler,
 };

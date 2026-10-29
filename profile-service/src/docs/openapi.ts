@@ -1,3 +1,49 @@
+const errorContent = {
+  "application/json": { schema: { $ref: "#/components/schemas/ErrorResponse" } },
+};
+
+// Shared multipart upload endpoint for CVs, profile images, logos and CAC documents
+const uploadPath = () => ({
+  post: {
+    tags: ["Uploads"],
+    summary: "Upload a file to Cloudflare R2",
+    description:
+      "Single upload endpoint. `purpose` selects the rules: cv (PDF/DOCX, 5 MB), avatar (JPG/PNG/WEBP, 2 MB), logo (JPG/PNG/WEBP, 2 MB), cac_document (PDF/JPG/PNG, 5 MB). Returns the public URL, which the caller saves with its onboarding or profile request.",
+    security: [{ bearerAuth: [] }, { cookieAuth: [] }],
+    parameters: [
+      {
+        name: "purpose",
+        in: "query",
+        required: true,
+        schema: { type: "string", enum: ["cv", "avatar", "logo", "cac_document"] },
+      },
+    ],
+    requestBody: {
+      required: true,
+      content: {
+        "multipart/form-data": {
+          schema: {
+            type: "object",
+            required: ["file"],
+            properties: { file: { type: "string", format: "binary" } },
+          },
+        },
+      },
+    },
+    responses: {
+      "200": {
+        description: "Uploaded. data: { url, purpose }",
+        content: { "application/json": { schema: { type: "object" } } },
+      },
+      "400": { description: "Missing file, wrong type or content mismatch", content: errorContent },
+      "401": { description: "Unauthorized", content: errorContent },
+      "413": { description: "File too large", content: errorContent },
+      "502": { description: "R2 upload failed", content: errorContent },
+      "503": { description: "R2 not configured", content: errorContent },
+    },
+  },
+});
+
 export const openApiDocument = {
   openapi: "3.1.0",
   info: {
@@ -10,6 +56,9 @@ export const openApiDocument = {
   tags: [
     { name: "Talent Profile", description: "Talent profile creation, retrieval, and updating" },
     { name: "Talent Discovery", description: "Public and recruiter candidate search" },
+    { name: "Uploads", description: "Shared file upload to Cloudflare R2" },
+    { name: "Company", description: "Employer onboarding and team invitations" },
+    { name: "Internal", description: "Service-to-service endpoints (x-internal-service-key)" },
     { name: "Health", description: "Service health and readiness probes" },
   ],
   paths: {
@@ -164,6 +213,166 @@ export const openApiDocument = {
         },
       },
     },
+    "/api/v1/uploads": uploadPath(),
+    "/api/v1/company/employer-onboarding": {
+      post: {
+        tags: ["Company"],
+        summary: "Create the employer's company (onboarding submit)",
+        description:
+          "JSON, or multipart with a `data` JSON field plus `logo` and `cac_document` files. Optional `invites` are emailed signup links after the company is created; invite failures never fail onboarding.",
+        security: [{ bearerAuth: [] }, { cookieAuth: [] }],
+        requestBody: {
+          required: true,
+          content: {
+            "application/json": { schema: { $ref: "#/components/schemas/EmployerOnboardingRequest" } },
+            "multipart/form-data": {
+              schema: {
+                type: "object",
+                properties: {
+                  data: { type: "string", description: "JSON of EmployerOnboardingRequest" },
+                  logo: { type: "string", format: "binary" },
+                  cac_document: { type: "string", format: "binary" },
+                },
+              },
+            },
+          },
+        },
+        responses: {
+          "201": { description: "Company created; the caller becomes ACTIVE ADMIN" },
+          "400": { description: "Validation failed", content: errorContent },
+          "401": { description: "Unauthorized", content: errorContent },
+        },
+      },
+    },
+    "/api/v1/company/{id}/public": {
+      get: {
+        tags: ["Company"],
+        summary: "Public company profile",
+        description:
+          "Name, logo, about, culture, follower count and published roles. Sign in to receive `is_following`. Cached in Redis for 60s; invalidated on company update and follow/unfollow.",
+        security: [{}, { bearerAuth: [] }, { cookieAuth: [] }],
+        parameters: [
+          { name: "id", in: "path", required: true, schema: { type: "string", pattern: "^[a-fA-F0-9]{24}$" } },
+        ],
+        responses: {
+          "200": { description: "Company profile with `follower_count`, `is_following` and `open_opportunities`" },
+          "404": { description: "Company not found", content: errorContent },
+        },
+      },
+    },
+    "/api/v1/company/{id}/follow": {
+      put: {
+        tags: ["Company"],
+        summary: "Follow a company (idempotent)",
+        security: [{ bearerAuth: [] }, { cookieAuth: [] }],
+        parameters: [
+          { name: "id", in: "path", required: true, schema: { type: "string", pattern: "^[a-fA-F0-9]{24}$" } },
+        ],
+        responses: {
+          "200": { description: "Followed" },
+          "401": { description: "Unauthorized", content: errorContent },
+          "404": { description: "Company not found", content: errorContent },
+        },
+      },
+      delete: {
+        tags: ["Company"],
+        summary: "Unfollow a company (idempotent)",
+        security: [{ bearerAuth: [] }, { cookieAuth: [] }],
+        parameters: [
+          { name: "id", in: "path", required: true, schema: { type: "string", pattern: "^[a-fA-F0-9]{24}$" } },
+        ],
+        responses: {
+          "200": { description: "Unfollowed" },
+          "401": { description: "Unauthorized", content: errorContent },
+        },
+      },
+    },
+    "/api/v1/company/{id}/talent-pool": {
+      get: {
+        tags: ["Company"],
+        summary: "Job-ready talent pool (company members only)",
+        description:
+          "Candidates whose latest completed assessment per role placed them for a job, joined with their profile. Private fields (email, phone, CV) are never returned. Cached in Redis for 120s.",
+        security: [{ bearerAuth: [] }, { cookieAuth: [] }],
+        parameters: [
+          { name: "id", in: "path", required: true, schema: { type: "string", pattern: "^[a-fA-F0-9]{24}$" } },
+        ],
+        responses: {
+          "200": { description: "`talent` (PoolTalent[]), `routed_count` and `generated_at`" },
+          "403": { description: "Active company membership required", content: errorContent },
+        },
+      },
+    },
+    "/api/v1/company/{id}/invites": {
+      post: {
+        tags: ["Company"],
+        summary: "Email team invitations (company ADMIN only)",
+        description:
+          "Creates a single-use token (valid 7 days) per address and emails a link to the minimal join page. Re-inviting an address revokes its earlier pending invite. Returns per-address results.",
+        security: [{ bearerAuth: [] }, { cookieAuth: [] }],
+        parameters: [
+          { name: "id", in: "path", required: true, schema: { type: "string", pattern: "^[a-fA-F0-9]{24}$" } },
+        ],
+        requestBody: {
+          required: true,
+          content: { "application/json": { schema: { $ref: "#/components/schemas/TeamInvitesRequest" } } },
+        },
+        responses: {
+          "201": {
+            description: "At least one invitation was sent",
+            content: { "application/json": { schema: { $ref: "#/components/schemas/TeamInvitesResponse" } } },
+          },
+          "400": { description: "Validation failed", content: errorContent },
+          "403": { description: "Company ADMIN access required", content: errorContent },
+          "404": { description: "Company not found", content: errorContent },
+          "502": { description: "No invitation could be sent", content: errorContent },
+        },
+      },
+    },
+    "/internal/invites/{token}": {
+      get: {
+        tags: ["Internal"],
+        summary: "Look up a usable invite (service-to-service)",
+        description: "Requires the `x-internal-service-key` header. Used by auth-service.",
+        parameters: [
+          { name: "token", in: "path", required: true, schema: { type: "string" } },
+        ],
+        responses: {
+          "200": { description: "Invite details (company, email, role)" },
+          "404": { description: "Invalid token", content: errorContent },
+          "410": { description: "Invite expired, revoked or already used", content: errorContent },
+        },
+      },
+    },
+    "/internal/invites/{token}/accept": {
+      post: {
+        tags: ["Internal"],
+        summary: "Link a new user to the inviting company (service-to-service)",
+        description:
+          "Requires the `x-internal-service-key` header. The user's email must match the invited address; the invite is claimed atomically and the user becomes an ACTIVE member.",
+        parameters: [
+          { name: "token", in: "path", required: true, schema: { type: "string" } },
+        ],
+        requestBody: {
+          required: true,
+          content: {
+            "application/json": {
+              schema: {
+                type: "object",
+                required: ["user_id", "email"],
+                properties: { user_id: { type: "string" }, email: { type: "string", format: "email" } },
+              },
+            },
+          },
+        },
+        responses: {
+          "200": { description: "Member linked" },
+          "403": { description: "Email does not match the invitation", content: errorContent },
+          "404": { description: "Invalid token", content: errorContent },
+          "410": { description: "Invite expired, revoked or already used", content: errorContent },
+        },
+      },
+    },
     "/api/v1/talent/profile/{id}": {
       get: {
         tags: ["Talent Discovery"],
@@ -174,8 +383,8 @@ export const openApiDocument = {
             name: "id",
             in: "path",
             required: true,
-            description: "UUID of the talent profile",
-            schema: { type: "string", format: "uuid" },
+            description: "MongoDB ObjectId of the talent profile",
+            schema: { type: "string", pattern: "^[a-fA-F0-9]{24}$" },
           },
         ],
         responses: {
@@ -289,6 +498,50 @@ export const openApiDocument = {
       },
     },
     schemas: {
+      TeamInviteEntry: {
+        type: "object",
+        required: ["email"],
+        properties: {
+          email: { type: "string", format: "email" },
+          workspace_role: { type: "string", enum: ["ADMIN", "MEMBER"], default: "ADMIN" },
+        },
+      },
+      TeamInvitesRequest: {
+        type: "object",
+        required: ["invites"],
+        properties: {
+          invites: { type: "array", minItems: 1, maxItems: 20, items: { $ref: "#/components/schemas/TeamInviteEntry" } },
+        },
+      },
+      TeamInvitesResponse: {
+        type: "object",
+        properties: {
+          message: { type: "string" },
+          results: {
+            type: "array",
+            items: {
+              type: "object",
+              properties: {
+                email: { type: "string" },
+                sent: { type: "boolean" },
+                error: { type: "string" },
+              },
+            },
+          },
+        },
+      },
+      EmployerOnboardingRequest: {
+        type: "object",
+        required: ["name"],
+        properties: {
+          name: { type: "string" },
+          website: { type: ["string", "null"], format: "uri" },
+          industry: { type: ["string", "null"] },
+          country: { type: ["string", "null"], description: "ISO 3166-1 alpha-2" },
+          registration_number: { type: ["string", "null"] },
+          invites: { type: "array", maxItems: 20, items: { $ref: "#/components/schemas/TeamInviteEntry" } },
+        },
+      },
       HealthResponse: {
         type: "object",
         properties: {
@@ -325,8 +578,8 @@ export const openApiDocument = {
       TalentProfile: {
         type: "object",
         properties: {
-          id: { type: "string", format: "uuid" },
-          user_id: { type: "string", format: "uuid" },
+          id: { type: "string", pattern: "^[a-fA-F0-9]{24}$", description: "MongoDB ObjectId" },
+          user_id: { type: "string", description: "Better Auth user id" },
           full_name: { type: "string", nullable: true, example: "Jane Developer" },
           headline: { type: "string", nullable: true, example: "Senior Backend Engineer" },
           phone: { type: "string", nullable: true, example: "+1234567890" },

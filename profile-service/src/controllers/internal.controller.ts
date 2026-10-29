@@ -1,5 +1,37 @@
 import type { RequestHandler } from "express";
 import { CompanyModel } from "../models/company.model.js";
+import { CompanyInviteModel } from "../models/company-invite.model.js";
+import { findCompanyOrRespond404 } from "../validators/company-access.validator.js";
+
+/**
+ * GET /internal/invites/:token
+ * Returns the company, invited email and role for a usable invite token (used by auth-service).
+ */
+export const getInviteDetails: RequestHandler = async (req, res, next) => {
+  try {
+    const invite = await CompanyInviteModel.getInviteDetails(String(req.params.token));
+    res.status(200).json({ invite });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * POST /internal/invites/:token/accept
+ * Links a newly created user to the inviting company as an ACTIVE member.
+ */
+export const acceptInviteByToken: RequestHandler = async (req, res, next) => {
+  try {
+    const invite = await CompanyInviteModel.acceptInvite(
+      String(req.params.token),
+      req.body.user_id,
+      req.body.email,
+    );
+    res.status(200).json({ invite });
+  } catch (error) {
+    next(error);
+  }
+};
 
 /**
  * GET /api/internal/companies/:id/access/:userId
@@ -11,14 +43,8 @@ export const getCompanyAccess: RequestHandler = async (req, res, next) => {
     const companyId = String(req.params.id);
     const userId = String(req.params.userId);
 
-    const company = await CompanyModel.findCompanyById(companyId);
-    if (!company) {
-      res.status(404).json({
-        error: "Not Found",
-        message: "Company not found",
-      });
-      return;
-    }
+    const company = await findCompanyOrRespond404(companyId, res);
+    if (!company) return;
 
     const member = await CompanyModel.findMember(companyId, userId);
     const isVerified = company.verification_status === "VERIFIED";
@@ -57,15 +83,8 @@ export const getCompanyAccess: RequestHandler = async (req, res, next) => {
 export const getCompanyVerificationStatus: RequestHandler = async (req, res, next) => {
   try {
     const companyId = String(req.params.id);
-    const company = await CompanyModel.findCompanyById(companyId);
-
-    if (!company) {
-      res.status(404).json({
-        error: "Not Found",
-        message: "Company not found",
-      });
-      return;
-    }
+    const company = await findCompanyOrRespond404(companyId, res);
+    if (!company) return;
 
     res.status(200).json({
       company_id: company.id,

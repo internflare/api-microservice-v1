@@ -1,8 +1,8 @@
 # Internflare Notification Service
 
-Standalone ESM Node.js/TypeScript service for sending transactional email notifications with Resend. It consumes account-signup events from auth-service and job-posting/application events from jobListing-service through separate RabbitMQ queues. In-app notifications are intentionally not part of this service yet.
+Standalone ESM Node.js/TypeScript service for sending transactional email notifications with Resend. It consumes account-signup events from auth-service, job-posting/application events from jobListing-service, and assessment-result events from ai-service through RabbitMQ. In-app notifications are intentionally not part of this service yet.
 
-The service exposes one authenticated email delivery endpoint with a typed set of notification categories. It sends the supplied subject and message through a consistent, escaped email template and stores a notification record in PostgreSQL after Resend accepts the email.
+The service exposes one authenticated email delivery endpoint with a typed set of notification categories. It sends the supplied subject and message through a consistent, escaped email template and stores a notification record in MongoDB after Resend accepts the email.
 
 ```text
 src/
@@ -11,9 +11,8 @@ src/
   middleware/   API-key authentication and error handling
   routes/       Health and email notification routes
   services/     Resend integration, email rendering, and RabbitMQ consumers
-  db/           PostgreSQL pool and schema migration
+  db/           MongoDB connection lifecycle
   models/       Typed notification persistence
-  migrations/   PostgreSQL schema migrations
   config.ts     Validated environment configuration
   app.ts        Express app and middleware wiring
   server.ts     HTTP server lifecycle
@@ -22,7 +21,7 @@ src/
 ## Requirements and setup
 
 - Node.js 20.11 or later
-- PostgreSQL 13 or later
+- A MongoDB Atlas cluster (or MongoDB 6.0 or later)
 - A Resend account and verified sending domain
 - RabbitMQ 3.x or later
 
@@ -31,17 +30,15 @@ npm install
 Copy-Item .env.example .env
 ```
 
-Set `DATABASE_URL` to a PostgreSQL connection string for the notification database, and set `DATABASE_SSL=true` when your database provider requires TLS. With TLS enabled, the service loads its trusted CA certificate from `backend/ca.pem`, shared with auth-service. Set `RESEND_API_KEY` to a Resend API key, `EMAIL_FROM` to a sender address on a verified domain, and `NOTIFICATION_API_KEY` to a random secret of at least 32 characters. Configure `RABBITMQ_URL` to the same broker used by auth-service. Keep credentials private. `PORT` defaults to `3002`.
+Set `MONGODB_URI` to your MongoDB Atlas connection string and optionally set `MONGODB_DB_NAME` to select the database (otherwise the database in the URI is used). Atlas manages TLS through its connection string; no extra TLS configuration is needed. Set `RESEND_API_KEY` to a Resend API key, `EMAIL_FROM` to a sender address on a verified domain, and `NOTIFICATION_API_KEY` to a random secret of at least 32 characters. Configure `RABBITMQ_URL` to the same broker used by auth-service. Keep credentials private. `PORT` defaults to `3002`.
 
 Set `SENTRY_DSN` to this service's Sentry Node project DSN to enable error and performance reporting. `SENTRY_TRACES_SAMPLE_RATE` optionally controls transaction sampling (default `0.1`). See the workspace [Sentry setup](../../SENTRY.md).
-
-The idempotent migration in `migrations/` creates the `notifications` table and user lookup indexes. It runs automatically before the service starts accepting requests or consuming signup events. Run `npm run db:migrate` to apply it separately when preparing a deployment.
 
 ```powershell
 npm run dev
 ```
 
-For production, run `npm run build` followed by `npm start`. Deploy the `migrations/` directory alongside the compiled `dist/` directory. `npm run type-check` checks the TypeScript project without emitting files.
+For production, run `npm run build` followed by `npm start`. `npm run type-check` checks the TypeScript project without emitting files.
 
 ## API documentation
 
@@ -51,7 +48,7 @@ For production, run `npm run build` followed by `npm start`. Deploy the `migrati
 - Public send-email route through the gateway: `POST http://localhost:3000/api/v1/notifications/email`
 
 All paths are relative to the service origin. Email delivery requires the `Authorization: Bearer <NOTIFICATION_API_KEY>` header. The health check and documentation are public.
-The service declares and consumes the single durable `internflare.notifications` queue at startup. It dispatches messages by `eventType` (`user.signed_up`, `user.email_verification_requested`, `job.published`, or `job.application_submitted`). RabbitMQ redelivers events that fail processing; signup events are acknowledged only after Resend accepts the email and PostgreSQL stores the notification. Verification emails are acknowledged after Resend accepts them. Job listing events are acknowledged after their requested emails are accepted by Resend. Notifications are at-least-once and may be duplicated if delivery succeeds but the consumer loses its connection before acknowledging the event.
+The service declares and consumes the single durable `internflare.notifications` queue at startup. It dispatches messages by `eventType` (`user.signed_up`, `user.email_verification_requested`, `job.published`, `job.application_submitted`, or `assessment.completed`). RabbitMQ redelivers events that fail processing; signup and assessment events are acknowledged only after Resend accepts the email and MongoDB stores the notification. Verification emails are acknowledged after Resend accepts them. Job listing events are acknowledged after their requested emails are accepted by Resend. Notifications are at-least-once and may be duplicated if delivery succeeds but the consumer loses its connection before acknowledging the event.
 
 For `job.published`, the event carries follower email recipients because follower relationships are not yet available to this service. For `job.application_submitted`, it carries the company's hiring-contact email. These are temporary integration inputs; connect them to the company/follower and application data sources before production use. The notification service must be able to connect to RabbitMQ before it starts listening for HTTP requests.
 
@@ -83,7 +80,7 @@ Supported `type` values: `account`, `application`, `interview`, `offer`, `messag
 
 ### Signup event from auth-service
 
-After Better Auth creates a user, auth-service publishes a persistent, publisher-confirmed `user.signed_up` message to the same durable queue. The consumer validates the event, sends a welcome email to the new user's email address through Resend, saves the notification using the event ID, and acknowledges the event only after both delivery and persistence succeed. A redelivered event whose notification was already saved is acknowledged without resending the email. The message schema is included in Swagger as `UserSignedUpEvent`.
+After Better Auth creates a user, auth-service publishes a persistent, publisher-confirmed `user.signed_up` message to the same durable queue. The consumer validates the event, sends a welcome email to the new user's email address through Resend, saves the notification with a deterministic per-user key, and acknowledges the event only after both delivery and persistence succeed. A repeated signup event for a user whose welcome notification was already saved is acknowledged without resending the email. MongoDB enforces one welcome notification per user with a unique partial index. The message schema is included in Swagger as `UserSignedUpEvent`.
 
 RabbitMQ delivery is at-least-once. If Resend accepts a welcome email but persistence fails, the event is requeued and a retry can send a duplicate email. Other failed processing is also requeued for retry.
 
@@ -91,4 +88,4 @@ On success, the API returns `202 Accepted` with the Resend `email_id` and saved 
 
 ## Calling service integration
 
-Call this API from trusted backend code, not from a browser. Store `NOTIFICATION_API_KEY` only in backend environment configuration and never expose it to frontend clients. Signup events are consumed automatically; other backend services can use the email endpoint for other supported notifications.
+Call this API from trusted backend code, not from a browser. Store `NOTIFICATION_API_KEY` only in backend environment configuration and never expose it to frontend clients. Signup events are consumed automatically; other backend services can use the email endpoint for other supported notifications. MongoDB is connected and its indexes are initialized before the service starts the RabbitMQ consumer or HTTP server.

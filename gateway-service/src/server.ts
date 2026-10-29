@@ -19,6 +19,7 @@ const upstreamServices = [
   { name: "notification-service", url: config.notificationServiceUrl },
   { name: "joblisting-service", url: config.jobListingServiceUrl },
   { name: "profile-service", url: config.profileServiceUrl },
+  { name: "ai-service", url: config.aiServiceUrl },
 ];
 
 documentationApp.get("/openapi.json", (_request, response) => {
@@ -63,57 +64,54 @@ function forwardableHeaders(headers: IncomingHttpHeaders): OutgoingHttpHeaders {
   );
 }
 
+// True when pathname is exactly the prefix or sits beneath it (so `/job/listing` and `/job/listing/x` both match).
+const matchesRoute = (pathname: string, prefix: string): boolean =>
+  pathname === prefix || pathname.startsWith(`${prefix}/`);
+
 // Route public versioned paths to the owning backend service.
 function getTarget(pathname: string): URL {
   if (
-    pathname === `${apiVersion}/me` ||
-    pathname.startsWith(`${apiVersion}/me/`) ||
-    pathname === `${apiVersion}/health`
+    matchesRoute(pathname, `${apiVersion}/me`) ||
+    pathname.startsWith(`${apiVersion}/health`)
   ) {
     return config.authServiceUrl;
   }
 
+  // Job listing endpoints/operations
   if (
-    pathname === `${apiVersion}/opportunities` ||
-    pathname.startsWith(`${apiVersion}/opportunities/`) ||
-    pathname === `${apiVersion}/job/listing` ||
-    pathname.startsWith(`${apiVersion}/job/listing/`)
+    matchesRoute(pathname, `${apiVersion}/opportunities`) ||
+    matchesRoute(pathname, `${apiVersion}/job/listing`) ||
+    matchesRoute(pathname, `${apiVersion}/saved-opportunities`)
   ) {
     return config.jobListingServiceUrl;
   }
 
+  // Notification endpoints/operations
   if (
-    pathname === `${apiVersion}/notifications` ||
     pathname.startsWith(`${apiVersion}/notifications/`) ||
-    pathname === `${apiVersion}/docs` ||
     pathname.startsWith(`${apiVersion}/docs/`) ||
     pathname === `${apiVersion}/openapi.json`
   ) {
     return config.notificationServiceUrl;
   }
 
-  // if path start with employer
+  // Profile service endpoints/operations (employer, company, admin, internal)
   if (
     pathname.startsWith(`${apiVersion}/employer/`) ||
     pathname.startsWith(`${apiVersion}/company/`) ||
     pathname.startsWith(`${apiVersion}/auth/`) ||
-    pathname === `${apiVersion}/admin/verifications` ||
     pathname.startsWith(`${apiVersion}/admin/verifications/`) ||
-    pathname === `${apiVersion}/admin` ||
     pathname.startsWith(`${apiVersion}/admin/`) ||
-    pathname === `${apiVersion}/internal/companies` ||
-    pathname.startsWith(`${apiVersion}/internal/companies/`)
+    pathname.startsWith(`${apiVersion}/internal/companies/`) ||
+    pathname.startsWith(`${apiVersion}/talent/`) ||
+    pathname === `${apiVersion}/uploads`
   ) {
     return config.profileServiceUrl;
   }
 
-  if (
-    pathname === "/api/v1/talent" ||
-    pathname.startsWith("/api/v1/talent/") ||
-    pathname === "/api/talent" ||
-    pathname.startsWith("/api/talent/")
-  ) {
-    return config.profileServiceUrl;
+  // AI service endpoints/operations
+  if (pathname.startsWith(`${apiVersion}/ai/`)) {
+    return config.aiServiceUrl;
   }
 
   return config.authServiceUrl;
@@ -202,7 +200,9 @@ const server = createServer((incoming, outgoing) => {
 
   // Forward the request to the appropriate upstream service based on the request path.
   const target = getTarget(requestUrl.pathname);
-  const servicePath = requestUrl.pathname.startsWith(`${apiVersion}/job/listing`)
+  const servicePath = requestUrl.pathname.startsWith(
+    `${apiVersion}/job/listing`,
+  )
     ? requestUrl.pathname.replace(`${apiVersion}/job/listing`, "/opportunities")
     : requestUrl.pathname.startsWith(`${apiVersion}/`)
       ? requestUrl.pathname.slice(apiVersion.length)

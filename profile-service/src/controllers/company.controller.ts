@@ -1,7 +1,23 @@
 import type { RequestHandler } from "express";
 import { CompanyModel } from "../models/company.model.js";
-import { isCompanyAdmin } from "./employer.controller.js";
+import { requireAdminCompanyId } from "../validators/company-access.validator.js";
+import { getAuthenticatedUserId as getUserId } from "../validators/request.validator.js";
+import { publishWelcomeEmail } from "../services/notification-publisher.service.js";
+import { sendTeamInvites } from "../services/team-invite.service.js";
+import { invalidateCompanyPublic } from "../services/company-public.service.js";
 import { AppError } from "../utils/appError.js";
+import { getUploadedFile, storeFile } from "../services/upload.service.js";
+import { UPLOAD_KINDS } from "../validators/upload.validator.js";
+
+// Company endpoints use this 401 body rather than the talent one.
+const getAuthenticatedUserId = (
+  req: Parameters<RequestHandler>[0],
+  res: Parameters<RequestHandler>[1],
+): string | undefined =>
+  getUserId(req, res, {
+    error: "Unauthorized",
+    message: "Authentication required",
+  });
 
 /**
  * POST /api/companies
@@ -9,16 +25,18 @@ import { AppError } from "../utils/appError.js";
  */
 export const createCompany: RequestHandler = async (req, res, next) => {
   try {
-    const userId = req.user?.id;
-    if (!userId) {
-      res
-        .status(401)
-        .json({ error: "Unauthorized", message: "Authentication required" });
-      return;
-    }
+    const userId = getAuthenticatedUserId(req, res);
+    if (!userId) return;
+
+    // Files sent with the submit are stored in R2 now that the data has validated.
+    const logo = getUploadedFile(res, "logo");
+    const cac = getUploadedFile(res, "cac_document");
+    const companyInput = { ...req.body };
+    if (logo) companyInput.logo_url = await storeFile(logo, UPLOAD_KINDS.logo, userId);
+    const cacUrl = cac ? await storeFile(cac, UPLOAD_KINDS.cac_document, userId) : null;
 
     const newCompany = await CompanyModel.createCompanyWithAdmin(
-      req.body,
+      companyInput,
       userId,
       req.ip,
     );
@@ -33,6 +51,42 @@ export const createCompany: RequestHandler = async (req, res, next) => {
 
     const { company, member } = newCompany;
 
+    // The CAC certificate goes straight into the verification queue for admin review.
+    if (cacUrl) {
+      try {
+        await CompanyModel.submitVerification(
+          company.id,
+          {
+            registration_number: companyInput.registration_number ?? undefined,
+            documents: [
+              {
+                title: "CAC registration certificate",
+                url: cacUrl,
+                document_type: "CAC",
+                uploaded_at: new Date().toISOString(),
+              },
+            ],
+          },
+          userId,
+          req.ip,
+        );
+      } catch (verificationError) {
+        console.error("[profile-service] CAC verification submit failed:", verificationError);
+      }
+    }
+
+    // Employer onboarding is complete once the company exists; welcome email is de-duplicated per user.
+    void publishWelcomeEmail(req.user!);
+
+    // Team invites are best-effort: failures are logged and never fail onboarding.
+    if (companyInput.invites?.length) {
+      void sendTeamInvites(
+        { id: company.id, name: company.name },
+        companyInput.invites,
+        { id: userId, name: req.user?.name ?? "A teammate" },
+      );
+    }
+
     res.status(201).json({
       message: "Company created successfully",
       company,
@@ -43,6 +97,10 @@ export const createCompany: RequestHandler = async (req, res, next) => {
   }
 };
 
+/**
+ * GET /api/companies/mine
+ * Lists the companies the authenticated user actively administers.
+ */
 export const listMyAdminCompanies: RequestHandler = async (req, res, next) => {
   try {
     const userId = req.user?.id;
@@ -85,11 +143,8 @@ export const getCompanyById: RequestHandler = async (req, res, next) => {
  */
 export const updateCompany: RequestHandler = async (req, res, next) => {
   try {
-    const userId = req.user?.id;
-    if (!userId) {
-      res.status(401).json({ error: "Unauthorized" });
-      return;
-    }
+    const userId = getAuthenticatedUserId(req, res);
+    if (!userId) return;
 
     const companyId = String(req.params.id);
     const updated = await CompanyModel.updateCompany(
@@ -106,6 +161,8 @@ export const updateCompany: RequestHandler = async (req, res, next) => {
       return;
     }
 
+    await invalidateCompanyPublic(companyId);
+
     res.status(200).json({
       message: "Company updated successfully",
       company: updated,
@@ -121,11 +178,8 @@ export const updateCompany: RequestHandler = async (req, res, next) => {
  */
 export const inviteCompanyMember: RequestHandler = async (req, res, next) => {
   try {
-    const actorId = req.user?.id;
-    if (!actorId) {
-      res.status(401).json({ error: "Unauthorized" });
-      return;
-    }
+    const actorId = getAuthenticatedUserId(req, res);
+    if (!actorId) return;
 
     const { user_id, workspace_role } = req.body;
     const companyId = String(req.params.id);
@@ -142,6 +196,38 @@ export const inviteCompanyMember: RequestHandler = async (req, res, next) => {
       message: "Member invited successfully",
       member,
     });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * POST /api/companies/:id/invites
+ * Emails signup links to new teammates. Restricted to company ADMINs.
+ * Responds 207-style: 201 with per-address results so the UI can show partial failures.
+ */
+export const inviteTeamMembers: RequestHandler = async (req, res, next) => {
+  try {
+    const actorId = getAuthenticatedUserId(req, res);
+    if (!actorId) return;
+
+    const company = await CompanyModel.findCompanyById(String(req.params.id));
+    if (!company) {
+      res.status(404).json({ error: "Not Found", message: "Company not found" });
+      return;
+    }
+
+    const results = await sendTeamInvites(
+      { id: company.id, name: company.name },
+      req.body.invites,
+      { id: actorId, name: req.user?.name ?? "A teammate" },
+    );
+    const failed = results.filter((result) => !result.sent);
+    if (failed.length === results.length) {
+      res.status(502).json({ error: "Bad Gateway", message: "Could not send the invitations", results });
+      return;
+    }
+    res.status(201).json({ message: "Invitations sent", results });
   } catch (error) {
     next(error);
   }
@@ -171,11 +257,8 @@ export const acceptMembershipInvite: RequestHandler = async (
   next,
 ) => {
   try {
-    const userId = req.user?.id;
-    if (!userId) {
-      res.status(401).json({ error: "Unauthorized" });
-      return;
-    }
+    const userId = getAuthenticatedUserId(req, res);
+    if (!userId) return;
 
     const companyId = String(req.params.id);
     const member = await CompanyModel.acceptInvite(companyId, userId, req.ip);
@@ -204,11 +287,8 @@ export const acceptMembershipInvite: RequestHandler = async (
  */
 export const removeCompanyMember: RequestHandler = async (req, res, next) => {
   try {
-    const actorId = req.user?.id;
-    if (!actorId) {
-      res.status(401).json({ error: "Unauthorized" });
-      return;
-    }
+    const actorId = getAuthenticatedUserId(req, res);
+    if (!actorId) return;
 
     const companyId = String(req.params.id);
     const memberId = String(req.params.memberId);
@@ -244,11 +324,8 @@ export const submitCompanyVerification: RequestHandler = async (
   next,
 ) => {
   try {
-    const actorId = req.user?.id;
-    if (!actorId) {
-      res.status(401).json({ error: "Unauthorized" });
-      return;
-    }
+    const actorId = getAuthenticatedUserId(req, res);
+    if (!actorId) return;
 
     const companyId = String(req.params.id);
     const verification = await CompanyModel.submitVerification(
@@ -282,17 +359,15 @@ const listCompanyVerifications: RequestHandler = async (req, res, next) => {
   }
 };
 
+/**
+ * Lists the jobs posted by the company the user administers.
+ * Currently limited to admins, which may be widened to other members later.
+ */
 const listAllPostedJobs: RequestHandler = async (req, res, next) => {
   try {
-    // ! May not be only admin
-    const userId = req.user?.id;
-    const companyId = await isCompanyAdmin(userId!);
+    const companyId = await requireAdminCompanyId(req);
 
-    if (!companyId) {
-      throw new AppError("user does not have admin priviledge", 403);
-    }
-
-    // Fetch and return the dashboard metrics
+    // Fetch and return the company's posted jobs
     const metrics = await CompanyModel.listAllPostedJobs(companyId);
     res.status(200).json({ metrics });
   } catch (error) {

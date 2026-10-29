@@ -97,6 +97,7 @@ async function connectNotificationPublisher(): Promise<void> {
   await getPublisherChannel();
 }
 
+// Send an event to the durable queue and wait for the broker to confirm it was stored.
 async function publish(
   event: JobPublishedEvent | JobApplicationSubmittedEvent,
 ) {

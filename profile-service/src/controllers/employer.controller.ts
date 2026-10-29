@@ -1,6 +1,6 @@
 import type { RequestHandler } from "express";
 import { CompanyModel } from "../models/company.model.js";
-import { AppError } from "../utils/appError.js";
+import { requireAdminCompanyId } from "../validators/company-access.validator.js";
 
 /**
  * GET /api/v1/employers/verifications
@@ -53,25 +53,10 @@ const decideVerification: RequestHandler = async (req, res, next) => {
   }
 };
 
-// check if  the user is authenticated and has previledge
-const isCompanyAdmin = (id: string) => {
-  // check if there is a row on company_member table with this userId,companyId and workspace_role is admin
-  return CompanyModel.isCompanyAdmin(id);
-};
-
 // GET /api/v1/employers/dashboard
 const getAdminDashboardMetrics: RequestHandler = async (req, res, next) => {
   try {
-    const userId = req.user?.id;
-    if (!userId) {
-      throw new AppError("Authentication is required", 401);
-    }
-
-    const companyId = await isCompanyAdmin(userId);
-
-    if (!companyId) {
-      throw new AppError("Active company administrator access required", 403);
-    }
+    const companyId = await requireAdminCompanyId(req);
 
     // Fetch and return the dashboard metrics
     const metrics = await CompanyModel.getAdminDashboardMetrics(companyId);
@@ -82,7 +67,6 @@ const getAdminDashboardMetrics: RequestHandler = async (req, res, next) => {
 };
 
 export {
-  isCompanyAdmin,
   listPendingVerifications,
   decideVerification,
   getAdminDashboardMetrics,

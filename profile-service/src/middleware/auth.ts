@@ -97,4 +97,29 @@ const requirePlatformAdmin: RequestHandler = (req, res, next) => {
   next();
 };
 
-export { requirePlatformAdmin, requireAuth };
+/**
+ * Attaches the user when a valid session exists but never rejects; anonymous visitors continue.
+ */
+const optionalAuth: RequestHandler = async (req, _res, next) => {
+  if (req.user || (!req.headers.cookie && !req.headers.authorization)) {
+    next();
+    return;
+  }
+  try {
+    const authRes = await fetch(`${config.authServiceUrl}/api/auth/get-session`, {
+      headers: {
+        ...(req.headers.cookie ? { cookie: req.headers.cookie } : {}),
+        ...(req.headers.authorization ? { authorization: req.headers.authorization } : {}),
+      },
+    });
+    if (authRes.ok) {
+      const session = (await authRes.json()) as { user?: AuthenticatedUser } | null;
+      if (session?.user) req.user = session.user;
+    }
+  } catch (error) {
+    console.warn("[profile-service] Optional auth lookup failed; treating as anonymous:", error);
+  }
+  next();
+};
+
+export { requirePlatformAdmin, requireAuth, optionalAuth };

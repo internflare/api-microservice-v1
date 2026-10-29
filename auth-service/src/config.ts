@@ -28,7 +28,8 @@ const xClientId = requireEnv("X_CLIENT_ID");
 const xClientSecret = requireEnv("X_CLIENT_SECRET");
 const linkedinClientId = requireEnv("LINKEDIN_CLIENT_ID");
 const linkedinClientSecret = requireEnv("LINKEDIN_CLIENT_SECRET");
-const databaseUrl = requireEnv("DATABASE_URL");
+const mongoUri = requireEnv("MONGODB_URI");
+const mongoDbName = process.env.MONGODB_DB_NAME?.trim() || undefined;
 const nodeEnv = requireEnv("NODE_ENV");
 
 // Validate configuration during startup rather than failing later on incoming requests.
@@ -72,7 +73,8 @@ const internalServiceSecret =
 const config = {
   nodeEnv,
   port,
-  databaseUrl,
+  mongoUri,
+  mongoDbName,
   googleClientId,
   googleClientSecret,
   appleClientId,
@@ -90,6 +92,7 @@ const config = {
     process.env.SENTRY_TRACES_SAMPLE_RATE,
   ),
   internalServiceSecret,
+  profileServiceUrl: process.env.PROFILE_SERVICE_URL?.trim() || "http://localhost:3004",
   trustedOrigins: [...trustedOrigins],
 };
 

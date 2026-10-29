@@ -10,7 +10,9 @@ interface AuthSession {
   };
 }
 
-async function authenticate(request: Parameters<RequestHandler>[0]): Promise<void> {
+async function authenticate(
+  request: Parameters<RequestHandler>[0],
+): Promise<void> {
   const cookie = request.headers.cookie;
   const authorization = request.headers.authorization;
   if (!cookie && !authorization) {
@@ -57,7 +59,8 @@ async function authenticate(request: Parameters<RequestHandler>[0]): Promise<voi
   }
 }
 
-export const requireAuth: RequestHandler = async (request, _response, next) => {
+// Middleware to require authentication for protected routes. If authentication fails, an error is thrown.
+const requireAuth: RequestHandler = async (request, _response, next) => {
   try {
     await authenticate(request);
     next();
@@ -66,7 +69,8 @@ export const requireAuth: RequestHandler = async (request, _response, next) => {
   }
 };
 
-export const optionalAuth: RequestHandler = async (request, _response, next) => {
+// Middleware to optionally authenticate the user. If authentication fails, the request proceeds without user information.
+const optionalAuth: RequestHandler = async (request, _response, next) => {
   if (!request.headers.cookie && !request.headers.authorization) {
     next();
     return;
@@ -83,3 +87,5 @@ export const optionalAuth: RequestHandler = async (request, _response, next) => 
     next(error);
   }
 };
+
+export { requireAuth, optionalAuth };

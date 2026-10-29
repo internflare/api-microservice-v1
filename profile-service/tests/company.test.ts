@@ -1,4 +1,4 @@
-import assert from "node:assert/strict";
+﻿import assert from "node:assert/strict";
 import test from "node:test";
 import { config } from "../src/config.js";
 import {
@@ -42,7 +42,7 @@ import {
   memberParamSchema,
   submitVerificationSchema,
   updateCompanySchema,
-  uuidParamSchema,
+  objectIdParamSchema,
 } from "../src/validators/company.validator.js";
 
 // Unified mock helper for Express req, res, next
@@ -230,23 +230,23 @@ test("Suite 1: Validation Schema Contracts", async (t) => {
     },
   );
 
-  await t.test("uuidParamSchema validates UUID format", () => {
-    const validUUID = { id: "a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11" };
-    const invalidUUID = { id: "not-a-uuid" };
+  await t.test("objectIdParamSchema validates ObjectId format", () => {
+    const validObjectId = { id: "507f1f77bcf86cd799439011" };
+    const invalidObjectId = { id: "not-an-object-id" };
 
-    assert.equal(uuidParamSchema.parse(validUUID).id, validUUID.id);
-    assert.throws(() => uuidParamSchema.parse(invalidUUID));
+    assert.equal(objectIdParamSchema.parse(validObjectId).id, validObjectId.id);
+    assert.throws(() => objectIdParamSchema.parse(invalidObjectId));
   });
 
   await t.test(
-    "memberParamSchema validates both company and member UUIDs",
+    "memberParamSchema validates both company and member ObjectIds",
     () => {
       const valid = {
-        id: "a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11",
-        memberId: "b1eebc99-9c0b-4ef8-bb6d-6bb9bd380a22",
+        id: "507f1f77bcf86cd799439011",
+        memberId: "507f1f77bcf86cd799439012",
       };
       const invalid = {
-        id: "a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11",
+        id: "507f1f77bcf86cd799439011",
         memberId: "123-bad-id",
       };
 
@@ -328,7 +328,7 @@ test("Suite 2: Company Authorization & Role Guards", async (t) => {
   );
 
   await t.test(
-    "requireCompanyMember blocks REMOVED members with 403 (PRD §14 Access Revocation)",
+    "requireCompanyMember blocks REMOVED members with 403 (PRD Â§14 Access Revocation)",
     async () => {
       const originalFindMember = CompanyModel.findMember;
       CompanyModel.findMember = async () =>
@@ -791,7 +791,7 @@ test("Suite 3: Member Management Operations", async (t) => {
   );
 
   await t.test(
-    "removeCompanyMember soft-removes member with REMOVED status (PRD §14)",
+    "removeCompanyMember soft-removes member with REMOVED status (PRD Â§14)",
     async () => {
       const originalSoftRemove = CompanyModel.softRemoveMember;
       const removedMember: CompanyMember = {
@@ -1397,7 +1397,7 @@ test("Suite 5: Cross-Service Permissions & Access Inspection", async (t) => {
   );
 
   await t.test(
-    "getCompanyAccess returns has_access: false for REMOVED member (PRD §14)",
+    "getCompanyAccess returns has_access: false for REMOVED member (PRD Â§14)",
     async () => {
       const originalFindCompany = CompanyModel.findCompanyById;
       const originalFindMember = CompanyModel.findMember;
@@ -1504,3 +1504,5 @@ test("Suite 5: Cross-Service Permissions & Access Inspection", async (t) => {
     },
   );
 });
+
+

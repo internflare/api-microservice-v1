@@ -35,6 +35,7 @@ export interface TalentProfile {
   work_arrangement_pref: WorkArrangementOption | null;
   career_goals: string | null;
   cv_url: string | null;
+  avatar_url: string | null;
   profile_completeness: number;
   readiness_score: number;
   created_at: string;
@@ -77,6 +78,7 @@ export interface TalentProfileInput {
   work_arrangement_pref?: WorkArrangementOption | null;
   career_goals?: string | null;
   cv_url?: string | null;
+  avatar_url?: string | null;
 }
 
 export interface TalentSearchQuery {

@@ -13,6 +13,44 @@ export const openApiDocument = {
     { name: "Health", description: "Service health" },
   ],
   paths: {
+    "/invites/{token}": {
+      get: {
+        summary: "Look up a team invitation (public)",
+        parameters: [{ name: "token", in: "path", required: true, schema: { type: "string" } }],
+        responses: {
+          "200": { description: "Company name, invited email and role" },
+          "404": { description: "Invalid link" },
+          "410": { description: "Expired, revoked or already used" },
+        },
+      },
+    },
+    "/invites/signup": {
+      post: {
+        summary: "Create an invited teammate's account (name and password only)",
+        requestBody: {
+          required: true,
+          content: {
+            "application/json": {
+              schema: {
+                type: "object",
+                required: ["token", "name", "password"],
+                properties: {
+                  token: { type: "string" },
+                  name: { type: "string", minLength: 2, maxLength: 120 },
+                  password: { type: "string", minLength: 8, maxLength: 128 },
+                },
+              },
+            },
+          },
+        },
+        responses: {
+          "201": { description: "Account created and linked to the company" },
+          "400": { description: "Validation error" },
+          "409": { description: "Account already exists" },
+          "410": { description: "Invitation no longer valid" },
+        },
+      },
+    },
     "/health": {
       get: {
         tags: ["Health"],

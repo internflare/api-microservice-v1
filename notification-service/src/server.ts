@@ -1,51 +1,39 @@
 import { app } from "./app.js";
 import * as Sentry from "@sentry/node";
 import { config } from "./config.js";
-import { database } from "./db/pool.js";
-import { migrateDatabase } from "./db/migrate.js";
+import { closeDb, connectDb } from "./db/mongoose.js";
 import { startSignupNotificationConsumer } from "./services/signup-consumer.service.js";
 import { logger } from "./utils/logger.js";
 
 async function start(): Promise<void> {
   let stopConsumer: (() => Promise<void>) | undefined;
   try {
-    // Prepare storage before consuming events so accepted notifications can be saved.
-    await migrateDatabase();
-    // Do not advertise readiness until the shared durable notification queue is ready.
+    await connectDb();
     stopConsumer = await startSignupNotificationConsumer();
   } catch (error) {
-    for (const [label, stop] of [
-      ["signup notification consumer", stopConsumer],
-    ] as const) {
-      if (!stop) continue;
-      try {
-        await stop();
-      } catch (cleanupError) {
-        logger(
-          "error",
-          `Failed to close ${label} after startup failure:`,
-          cleanupError,
-        );
-      }
-    }
     try {
-      await database.end();
+      await stopConsumer?.();
     } catch (cleanupError) {
       logger(
         "error",
-        "Failed to close PostgreSQL after startup failure:",
+        "Failed to close signup notification consumer after startup failure:",
         cleanupError,
       );
     }
+    try {
+      await closeDb();
+    } catch (cleanupError) {
+      logger("error", "Failed to close MongoDB after startup failure:", cleanupError);
+    }
     throw error;
   }
+
   const server = app.listen(config.port, () => {
     logger("info", `Notification service listening on port ${config.port}`);
   });
 
   let shuttingDown = false;
 
-  // Stop HTTP work and the message consumer before the process exits.
   async function shutdown(signal: string): Promise<void> {
     if (shuttingDown) return;
     shuttingDown = true;
@@ -55,7 +43,6 @@ async function start(): Promise<void> {
         logger("error", "Failed to close the HTTP server cleanly:", error);
         process.exitCode = 1;
       }
-
       try {
         await stopConsumer?.();
       } catch (consumerError) {
@@ -63,9 +50,9 @@ async function start(): Promise<void> {
         process.exitCode = 1;
       }
       try {
-        await database.end();
+        await closeDb();
       } catch (databaseError) {
-        logger("error", "Failed to close the PostgreSQL pool:", databaseError);
+        logger("error", "Failed to close MongoDB connection:", databaseError);
         process.exitCode = 1;
       }
       try {
@@ -90,13 +77,9 @@ void start().catch((error: unknown) => {
   logger("error", "Failed to start the notification service:", error);
   void (async () => {
     try {
-      await database.end();
+      await closeDb();
     } catch (cleanupError) {
-      logger(
-        "error",
-        "Failed to close PostgreSQL after startup failure:",
-        cleanupError,
-      );
+      logger("error", "Failed to close MongoDB after startup failure:", cleanupError);
     }
     try {
       await Sentry.close(2_000);

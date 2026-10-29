@@ -29,6 +29,8 @@ export interface Company {
   industry?: string | null;
   registration_number?: string | null;
   logo_url?: string | null;
+  description?: string | null;
+  culture?: string | null;
   verification_status: CompanyVerificationStatus;
   created_by: string;
   created_at: Date;

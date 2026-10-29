@@ -1,4 +1,4 @@
-import { Router } from "express";
+﻿import { Router } from "express";
 import {
   decideVerification,
   getAdminDashboardMetrics,
@@ -8,7 +8,7 @@ import { requireAuth, requirePlatformAdmin } from "../middleware/auth.js";
 import { validateBody, validateParams } from "../middleware/validate.js";
 import {
   adminVerificationDecisionSchema,
-  uuidParamSchema,
+  objectIdParamSchema,
 } from "../validators/company.validator.js";
 
 export const employerRoutes = Router();
@@ -29,7 +29,8 @@ employerRoutes.get("/dashboard", getAdminDashboardMetrics);
 employerRoutes.post(
   "/verifications/:id/decision",
   requirePlatformAdmin,
-  validateParams(uuidParamSchema),
+  validateParams(objectIdParamSchema),
   validateBody(adminVerificationDecisionSchema),
   decideVerification,
 );
+

@@ -1,25 +1,21 @@
-import { app } from "./app.js";
+﻿import { app } from "./app.js";
 import { config } from "./config.js";
-import { pool } from "./db/pool.js";
-import { runMigrations } from "./db/migrate.js";
+import { closeDb, connectDb } from "./db/mongoose.js";
+import { closeNotificationPublisher } from "./services/notification-publisher.service.js";
+import { closeCache, connectCache } from "./services/cache.service.js";
 
 async function start(): Promise<void> {
-  await runMigrations();
-
+  await connectDb();
+  await connectCache();
   const server = app.listen(config.port, () => {
-    console.log(
-      `[profile-service] Server running on port ${config.port} in ${config.nodeEnv} mode`,
-    );
+    console.log(`[profile-service] Server running on port ${config.port} in ${config.nodeEnv} mode`);
   });
 
   let shuttingDown = false;
   const shutdown = (signal: string) => {
     if (shuttingDown) return;
     shuttingDown = true;
-
-    console.log(
-      `[profile-service] Received ${signal}. Shutting down gracefully...`,
-    );
+    console.log(`[profile-service] Received ${signal}. Shutting down gracefully...`);
     server.close((error) => {
       if (error) {
         console.error("[profile-service] Failed to close HTTP server:", error);
@@ -27,12 +23,8 @@ async function start(): Promise<void> {
       } else {
         console.log("[profile-service] HTTP server closed.");
       }
-
-      void pool.end().catch((poolError: unknown) => {
-        console.error(
-          "[profile-service] Failed to close PostgreSQL pool:",
-          poolError,
-        );
+      void Promise.all([closeDb(), closeNotificationPublisher(), closeCache()]).catch((closeError: unknown) => {
+        console.error("[profile-service] Failed to close service resources:", closeError);
         process.exitCode = 1;
       });
     });
@@ -40,7 +32,6 @@ async function start(): Promise<void> {
 
   process.once("SIGINT", () => shutdown("SIGINT"));
   process.once("SIGTERM", () => shutdown("SIGTERM"));
-
   server.on("error", (error) => {
     console.error("[profile-service] Failed to start HTTP server:", error);
     process.exitCode = 1;
@@ -50,12 +41,9 @@ async function start(): Promise<void> {
 void start().catch(async (error: unknown) => {
   console.error("[profile-service] Failed to start:", error);
   try {
-    await pool.end();
-  } catch (poolError) {
-    console.error(
-      "[profile-service] Failed to close PostgreSQL pool after startup failure:",
-      poolError,
-    );
+    await closeDb();
+  } catch (closeError) {
+    console.error("[profile-service] Failed to close MongoDB after startup failure:", closeError);
   }
   process.exitCode = 1;
 });

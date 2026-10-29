@@ -1,4 +1,17 @@
 import { z } from "zod";
+import { config } from "../config.js";
+
+// A stored file link must point at our own R2 bucket, so clients can't save arbitrary URLs.
+const storedFileUrl = z
+  .string()
+  .trim()
+  .max(1024)
+  .refine(
+    (url) => !config.r2.publicUrl || url.startsWith(`${config.r2.publicUrl}/`),
+    "Must be a file uploaded through Internflare",
+  )
+  .optional()
+  .nullable();
 
 export const EducationItemSchema = z.object({
   institution: z.string().trim().min(1, "Institution is required"),
@@ -44,7 +57,8 @@ export const CreateTalentProfileSchema = z.object({
   availability: z.string().trim().max(50).optional().nullable(),
   work_arrangement_pref: z.string().trim().max(50).optional().nullable(),
   career_goals: z.string().trim().max(5000).optional().nullable(),
-  cv_url: z.string().trim().max(1024).optional().nullable(),
+  cv_url: storedFileUrl,
+  avatar_url: storedFileUrl,
 });
 
 export const UpdateTalentProfileSchema = CreateTalentProfileSchema.partial();

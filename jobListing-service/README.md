@@ -1,6 +1,6 @@
 # Internflare Job Listing Service
 
-This service stores and searches job, internship, and other opportunity records in PostgreSQL. It publishes durable RabbitMQ events consumed by notification-service.
+This service stores and searches job, internship, and other opportunity records in MongoDB using Mongoose. It publishes durable RabbitMQ events consumed by notification-service.
 
 ## Configure
 
@@ -8,11 +8,11 @@ This service stores and searches job, internship, and other opportunity records 
 Copy-Item .env.example .env
 ```
 
-Set `DATABASE_URL` to the PostgreSQL database for opportunities. If the database requires TLS, set `DATABASE_SSL=true`; the service validates the connection using `backend/ca.pem`. Set `RABBITMQ_URL` to the shared RabbitMQ broker. `FRONTEND_URL` is used to construct links in notification emails.
+Set `MONGODB_URI` to the MongoDB Atlas connection string. Optionally set `MONGODB_DB_NAME` to choose the database name. Set `RABBITMQ_URL` to the shared RabbitMQ broker. `FRONTEND_URL` is used to construct links in notification emails.
 
 ## Routes
 
-- `GET /health` checks PostgreSQL and RabbitMQ connectivity internally; the gateway exposes it at `/api/v1/health`.
+- `GET /health` checks MongoDB and RabbitMQ connectivity internally; the gateway exposes it at `/api/v1/health`.
 - `GET /opportunities` lists opportunities with pagination, sorting, search, and filters internally; the gateway exposes it at `/api/v1/opportunities`.
 - `GET /opportunities/:id` returns one opportunity internally.
 - `POST /opportunities` creates an opportunity and queues a job-posted notification when follower recipients are provided internally.
@@ -25,7 +25,7 @@ URL query parsing, validation, pagination offsets, sorting metadata, and filter 
 
 Example public gateway request: `GET http://localhost:3000/api/v1/opportunities?page=2&page_size=10&opportunity_type=internship&sort_by=created_at&sort_order=desc`.
 
-The opportunity request uses the snake_case fields in the `opportunities` table schema. In addition, `follower_recipients` may be supplied as an array of `{ "email": "...", "name": "..." }` values. This is an integration placeholder: the service does not yet have access to company-follow relationships, so the trusted caller must supply the current followers. Connect this field to the company/follower data source before relying on it for production delivery.
+The opportunity request uses the snake_case opportunity fields. In addition, `follower_recipients` may be supplied as an array of `{ "email": "...", "name": "..." }` values. This is an integration placeholder: the service does not yet have access to company-follow relationships, so the trusted caller must supply the current followers. Connect this field to the company/follower data source before relying on it for production delivery.
 
 The application-notification route accepts `applicant_name`, `applicant_email`, `company_email`, and optional `company_contact_name`. `company_email` is a placeholder until the company record integration can resolve the hiring contact. This route queues only the notification; it does not persist an application. Application storage and idempotency should be handled by the application service.
 
@@ -38,4 +38,4 @@ npm install
 npm run dev
 ```
 
-The service applies its idempotent opportunity-table migration at startup. Run `npm run db:migrate` to apply it separately. `npm run type-check` validates the TypeScript project without emitting files.
+The service connects to MongoDB before listening. `npm run type-check` validates the TypeScript project without emitting files.

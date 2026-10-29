@@ -43,6 +43,13 @@ const passwordResetEventSchema = z.object({
   resetUrl: emailVerificationEventSchema.shape.verificationUrl,
 });
 
+const passwordChangedEventSchema = z.object({
+  eventId: z.uuid(),
+  eventType: z.literal("user.password_changed"),
+  occurredAt: z.iso.datetime(),
+  user: signupEventSchema.shape.user,
+});
+
 const recipientSchema = z.object({
   email: z.email(),
   name: z.string().trim().min(1).max(120).optional(),
@@ -53,8 +60,8 @@ const jobPublishedEventSchema = z.object({
   eventType: z.literal("job.published"),
   occurredAt: z.iso.datetime(),
   opportunity: z.object({
-    id: z.uuid(),
-    company_id: z.uuid().nullable(),
+    id: z.string().min(1),
+    company_id: z.string().min(1).nullable(),
     title: z.string().min(1),
     description: z.string().min(1),
     location: z.string().nullable(),
@@ -69,12 +76,35 @@ const jobApplicationEventSchema = z.object({
   eventType: z.literal("job.application_submitted"),
   occurredAt: z.iso.datetime(),
   application: z.object({
-    opportunityId: z.uuid(),
+    opportunityId: z.string().min(1),
     opportunityTitle: z.string().min(1),
     applicantName: z.string().min(1),
     applicantEmail: z.email(),
   }),
   recipient: recipientSchema,
+});
+
+const assessmentCompletedEventSchema = z.object({
+  eventId: z.uuid(),
+  eventType: z.literal("assessment.completed"),
+  occurredAt: z.iso.datetime(),
+  user: z.object({
+    id: z.string().min(1),
+    name: z.string().max(120).optional(),
+    email: z.email(),
+  }),
+  assessment: z.object({
+    roleTitle: z.string().min(1),
+    levelLabel: z.string().min(1),
+    overallScore: z.number().min(0).max(100),
+    placement: z.enum(["learning", "internship", "job"]),
+    demonstratedLevel: z.string().min(1),
+    summary: z.string(),
+    strengths: z.array(z.string()),
+    gaps: z.array(z.string()),
+    recommendedNext: z.string(),
+    resultsUrl: z.url(),
+  }),
 });
 
 type ConsumerSession = {
@@ -142,8 +172,9 @@ async function createConsumerSession(
 async function deliverSignupEvent(
   event: z.infer<typeof signupEventSchema>,
 ): Promise<void> {
-  if (await findNotificationById(event.eventId)) {
-    logger("info", `Signup notification ${event.eventId} was already saved`);
+  const notificationId = `welcome:${event.user.id}`;
+  if (await findNotificationById(notificationId)) {
+    logger("info", `Welcome notification for user ${event.user.id} was already saved`);
     return;
   }
 
@@ -161,13 +192,14 @@ async function deliverSignupEvent(
     action: { label: "Open your dashboard", url: link },
   });
   await createNotification({
-    id: event.eventId,
+    id: notificationId,
     user_id: event.user.id,
     type: "account",
     title,
     body,
     link,
     channel: "email",
+    dedupe_key: "welcome",
   });
 }
 
@@ -199,6 +231,30 @@ async function deliverPasswordResetEvent(
     message:
       "We received a request to reset your Internflare password. This link expires in 30 minutes. If you didn't request it, you can safely ignore this email.",
     action: { label: "Reset password", url: event.resetUrl },
+  });
+}
+
+async function deliverPasswordChangedEvent(
+  event: z.infer<typeof passwordChangedEventSchema>,
+): Promise<void> {
+  const link = new URL("/sign-in", config.frontendUrl).toString();
+  await sendEmailNotification({
+    type: "account",
+    to: event.user.email,
+    recipientName: event.user.name || undefined,
+    subject: "Your Internflare password was changed",
+    message:
+      "Your Internflare password was just changed. If this was you, no further action is needed and you are now signed in. If you did not make this change, reset your password immediately and contact support.",
+    action: { label: "Sign in", url: link },
+  });
+  await createNotification({
+    id: event.eventId,
+    user_id: event.user.id,
+    type: "account",
+    title: "Password changed",
+    body: "Your Internflare password was just changed. If this was not you, reset it immediately.",
+    link,
+    channel: "email",
   });
 }
 
@@ -251,6 +307,128 @@ async function deliverJobApplicationEvent(
   });
 }
 
+const placementLabels = {
+  learning: "Learning pool",
+  internship: "Internship pool",
+  job: "Job pool",
+} as const;
+
+// Email the talent their assessment result; deduplicated by eventId (the attempt id).
+async function deliverAssessmentCompletedEvent(
+  event: z.infer<typeof assessmentCompletedEventSchema>,
+): Promise<void> {
+  if (await findNotificationById(event.eventId)) {
+    logger("info", `Assessment notification ${event.eventId} was already saved`);
+    return;
+  }
+
+  const { assessment } = event;
+  const title = `Your ${assessment.roleTitle} assessment result`;
+  const list = (items: string[]) =>
+    items.length > 0 ? items.map((item) => `- ${item}`).join("\n") : "- None identified";
+  const body = [
+    `Overall score: ${assessment.overallScore}/100`,
+    `Placement: ${placementLabels[assessment.placement]}`,
+    `Demonstrated level: ${assessment.demonstratedLevel} (tested at ${assessment.levelLabel})`,
+    assessment.summary,
+    `Strengths:\n${list(assessment.strengths)}`,
+    `Areas to improve:\n${list(assessment.gaps)}`,
+    `Recommended next step: ${assessment.recommendedNext}`,
+  ]
+    .filter(Boolean)
+    .join("\n\n");
+
+  await sendEmailNotification({
+    type: "system",
+    to: event.user.email,
+    recipientName: event.user.name || undefined,
+    subject: title,
+    message: body,
+    action: { label: "View your results", url: assessment.resultsUrl },
+  });
+  await createNotification({
+    id: event.eventId,
+    user_id: event.user.id,
+    type: "system",
+    title,
+    body,
+    link: assessment.resultsUrl,
+    channel: "email",
+  });
+}
+
+const teamInviteEventSchema = z.object({
+  eventId: z.uuid(),
+  eventType: z.literal("company.team_invite"),
+  occurredAt: z.iso.datetime(),
+  invite: z.object({
+    email: z.email(),
+    token: z.string().min(20),
+    companyName: z.string().min(1).max(255),
+    inviterName: z.string().max(120),
+    role: z.enum(["ADMIN", "MEMBER"]),
+    expiresAt: z.iso.datetime(),
+  }),
+});
+
+// Email a teammate a link to a minimal signup page that attaches them to the company.
+async function deliverTeamInviteEvent(
+  event: z.infer<typeof teamInviteEventSchema>,
+): Promise<void> {
+  const { invite } = event;
+  const link = new URL("/join-team", config.frontendUrl);
+  link.searchParams.set("token", invite.token);
+  const expires = new Date(invite.expiresAt).toUTCString();
+
+  await sendEmailNotification({
+    type: "account",
+    to: invite.email,
+    subject: `${invite.inviterName || "A teammate"} invited you to join ${invite.companyName} on Internflare`,
+    message: `${invite.inviterName || "A teammate"} has invited you to join ${invite.companyName}'s hiring team on Internflare. Set up your account with just your name and a password — the company is already configured. This link expires on ${expires}.`,
+    action: { label: "Accept invitation", url: link.toString() },
+  });
+}
+
+// Registry mapping each eventType to its validation schema and delivery function.
+// Adding a new event type only requires one entry here.
+const eventHandlers: Record<
+  string,
+  { schema: z.ZodType; deliver: (event: never) => Promise<void> }
+> = {
+  "user.signed_up": {
+    schema: signupEventSchema,
+    deliver: deliverSignupEvent,
+  },
+  "user.email_verification_requested": {
+    schema: emailVerificationEventSchema,
+    deliver: deliverEmailVerificationEvent,
+  },
+  "user.password_reset_requested": {
+    schema: passwordResetEventSchema,
+    deliver: deliverPasswordResetEvent,
+  },
+  "user.password_changed": {
+    schema: passwordChangedEventSchema,
+    deliver: deliverPasswordChangedEvent,
+  },
+  "job.published": {
+    schema: jobPublishedEventSchema,
+    deliver: deliverJobPublishedEvent,
+  },
+  "job.application_submitted": {
+    schema: jobApplicationEventSchema,
+    deliver: deliverJobApplicationEvent,
+  },
+  "assessment.completed": {
+    schema: assessmentCompletedEventSchema,
+    deliver: deliverAssessmentCompletedEvent,
+  },
+  "company.team_invite": {
+    schema: teamInviteEventSchema,
+    deliver: deliverTeamInviteEvent,
+  },
+};
+
 // Route all events from the shared queue by eventType; unknown or malformed events are discarded.
 async function deliverNotification(
   message: amqp.ConsumeMessage | null,
@@ -272,55 +450,22 @@ async function deliverNotification(
       ? decoded.eventType
       : undefined;
   try {
-    if (eventType === "user.signed_up") {
-      const event = signupEventSchema.safeParse(decoded);
-      if (!event.success) {
-        logger("error", "Discarding invalid signup event:", event.error);
-        channel.ack(message);
-        return;
-      }
-      await deliverSignupEvent(event.data);
-    } else if (eventType === "user.email_verification_requested") {
-      const event = emailVerificationEventSchema.safeParse(decoded);
-      if (!event.success) {
-        logger("error", "Discarding invalid email-verification event:", event.error);
-        channel.ack(message);
-        return;
-      }
-      await deliverEmailVerificationEvent(event.data);
-    } else if (eventType === "user.password_reset_requested") {
-      const event = passwordResetEventSchema.safeParse(decoded);
-      if (!event.success) {
-        logger("error", "Discarding invalid password-reset event:", event.error);
-        channel.ack(message);
-        return;
-      }
-      await deliverPasswordResetEvent(event.data);
-    } else if (eventType === "job.published") {
-      const event = jobPublishedEventSchema.safeParse(decoded);
-      if (!event.success) {
-        logger("error", "Discarding invalid job-published event:", event.error);
-        channel.ack(message);
-        return;
-      }
-      await deliverJobPublishedEvent(event.data);
-    } else if (eventType === "job.application_submitted") {
-      const event = jobApplicationEventSchema.safeParse(decoded);
-      if (!event.success) {
-        logger(
-          "error",
-          "Discarding invalid job-application event:",
-          event.error,
-        );
-        channel.ack(message);
-        return;
-      }
-      await deliverJobApplicationEvent(event.data);
-    } else {
+    const handler =
+      typeof eventType === "string" ? eventHandlers[eventType] : undefined;
+    if (!handler) {
       logger("error", `Discarding unknown notification event type: ${String(eventType)}`);
       channel.ack(message);
       return;
     }
+
+    // A schema failure is permanent, so ack (discard) instead of requeueing forever.
+    const parsed = handler.schema.safeParse(decoded);
+    if (!parsed.success) {
+      logger("error", `Discarding invalid ${String(eventType)} event:`, parsed.error);
+      channel.ack(message);
+      return;
+    }
+    await (handler.deliver as (event: unknown) => Promise<void>)(parsed.data);
 
     channel.ack(message);
     logger("info", `Delivered ${String(eventType)} notification`);

@@ -1,6 +1,12 @@
-import type { PoolClient } from "pg";
-import { database } from "../db/pool.js";
+import mongoose, { type ClientSession } from "mongoose";
 import { AppError } from "../utils/appError.js";
+import {
+  AuditLogDocument,
+  CompanyDocument,
+  CompanyMemberDocument,
+  CompanyVerificationDocument,
+  OpportunityDocument,
+} from "./company.schema.js";
 import type {
   Company,
   CompanyMember,
@@ -14,275 +20,155 @@ import type {
   UpdateCompanyInput,
 } from "../validators/company.validator.js";
 
-async function rollbackAndRethrow(
-  client: PoolClient,
-  error: unknown,
-): Promise<never> {
+function serialize<T>(value: any): T {
+  if (!value) return value;
+  const result = typeof value.toObject === "function" ? value.toObject() : { ...value };
+  result.id = String(result.id ?? result._id);
+  delete result._id;
+  delete result.__v;
+  if (result.company_id != null) result.company_id = String(result.company_id);
+  return result as T;
+}
+
+async function inTransaction<T>(work: (session: ClientSession) => Promise<T>): Promise<T> {
+  const session = await mongoose.startSession();
   try {
-    await client.query("ROLLBACK");
-  } catch (rollbackError) {
-    console.error("Failed to roll back company transaction:", rollbackError);
+    let result!: T;
+    await session.withTransaction(async () => {
+      result = await work(session);
+    });
+    return result;
+  } finally {
+    await session.endSession();
   }
-  throw error;
+}
+
+async function recordAudit(
+  entry: {
+    actor_id: string;
+    action: string;
+    entity_type: "company" | "company_member" | "company_verification";
+    entity_id: string;
+    metadata: Record<string, unknown>;
+    ip_address?: string;
+  },
+  session: ClientSession,
+): Promise<void> {
+  await AuditLogDocument.create([entry], { session });
+}
+
+function isObjectId(value: string): boolean {
+  return mongoose.isValidObjectId(value);
+}
+
+export function companyIdFilter(companyId: string): Record<string, unknown> {
+  const values: unknown[] = [companyId];
+  if (isObjectId(companyId)) values.push(new mongoose.Types.ObjectId(companyId));
+  return { company_id: { $in: values } };
 }
 
 export class CompanyModel {
-  /**
-   * Creates a new company and assigns the creator as the initial ACTIVE ADMIN member
-   * atomically within a single database transaction (PRD §4.2, Journey step 33).
-   */
   static async createCompanyWithAdmin(
     input: CreateCompanyInput,
     userId: string,
     clientIp?: string,
   ): Promise<{ company: Company; member: CompanyMember }> {
-    const client = await database.connect();
-
-    try {
-      await client.query("BEGIN");
-
-      // 1. Insert company record
-      const insertCompanyQuery = `
-        INSERT INTO companies (
-          name, website, country, industry, registration_number, logo_url, verification_status, created_by
-        ) VALUES ($1, $2, $3, $4, $5, $6, 'UNVERIFIED', $7)
-        RETURNING *;
-      `;
-      const { rows: companyRows } = await client.query<Company>(
-        insertCompanyQuery,
-        [
-          input.name,
-          input.website ?? null,
-          input.country ?? null,
-          input.industry ?? null,
-          input.registration_number ?? null,
-          input.logo_url ?? null,
-          userId,
-        ],
+    return inTransaction(async (session) => {
+      const [companyDoc] = await CompanyDocument.create(
+        [{ ...input, verification_status: "UNVERIFIED", created_by: userId }],
+        { session },
       );
-      const company = companyRows[0];
-
-      // 2. Insert creator as initial ACTIVE ADMIN member
-      const insertMemberQuery = `
-        INSERT INTO company_members (
-          company_id, user_id, workspace_role, status, joined_at
-        ) VALUES ($1, $2, 'ADMIN', 'ACTIVE', CURRENT_TIMESTAMP)
-        RETURNING *;
-      `;
-      const { rows: memberRows } = await client.query<CompanyMember>(
-        insertMemberQuery,
-        [company.id, userId],
+      const [memberDoc] = await CompanyMemberDocument.create(
+        [{ company_id: companyDoc._id, user_id: userId, workspace_role: "ADMIN", status: "ACTIVE", joined_at: new Date() }],
+        { session },
       );
-      const member = memberRows[0];
-
-      // 3. Record immutable audit log
-      const insertAuditQuery = `
-        INSERT INTO audit_logs (
-          actor_id, action, entity_type, entity_id, metadata, ip_address
-        ) VALUES ($1, 'COMPANY_CREATED', 'company', $2, $3, $4);
-      `;
-      await client.query(insertAuditQuery, [
-        userId,
-        company.id,
-        JSON.stringify({
-          company_name: company.name,
-          creator_role: "ADMIN",
-        }),
-        clientIp ?? null,
-      ]);
-
-      await client.query("COMMIT");
+      const company = serialize<Company>(companyDoc);
+      const member = serialize<CompanyMember>(memberDoc);
+      await recordAudit({
+        actor_id: userId,
+        action: "COMPANY_CREATED",
+        entity_type: "company",
+        entity_id: company.id,
+        metadata: { company_name: company.name, creator_role: "ADMIN" },
+        ip_address: clientIp,
+      }, session);
       return { company, member };
-    } catch (error) {
-      return rollbackAndRethrow(client, error);
-    } finally {
-      client.release();
-    }
+    });
   }
 
-  /**
-   * Retrieves an active company by its UUID.
-   */
   static async findCompanyById(companyId: string): Promise<Company | null> {
-    const query = `
-      SELECT * FROM companies 
-      WHERE id = $1 AND deleted_at IS NULL;
-    `;
-    const { rows } = await database.query<Company>(query, [companyId]);
-    return rows[0] ?? null;
+    if (!isObjectId(companyId)) return null;
+    const company = await CompanyDocument.findOne({ _id: companyId, deleted_at: null }).lean();
+    return company ? serialize<Company>(company) : null;
   }
 
-  /**
-   * Updates company profile fields dynamically with strict parameterization.
-   */
   static async updateCompany(
     companyId: string,
     input: UpdateCompanyInput,
     userId: string,
     clientIp?: string,
   ): Promise<Company | null> {
-    const fields: string[] = [];
-    const values: unknown[] = [];
-    let paramIndex = 1;
+    if (!isObjectId(companyId)) return null;
+    const fields = Object.fromEntries(Object.entries(input).filter(([, value]) => value !== undefined));
+    if (Object.keys(fields).length === 0) return this.findCompanyById(companyId);
 
-    if (input.name !== undefined) {
-      fields.push(`name = $${paramIndex++}`);
-      values.push(input.name);
-    }
-    if (input.website !== undefined) {
-      fields.push(`website = $${paramIndex++}`);
-      values.push(input.website);
-    }
-    if (input.country !== undefined) {
-      fields.push(`country = $${paramIndex++}`);
-      values.push(input.country);
-    }
-    if (input.industry !== undefined) {
-      fields.push(`industry = $${paramIndex++}`);
-      values.push(input.industry);
-    }
-    if (input.registration_number !== undefined) {
-      fields.push(`registration_number = $${paramIndex++}`);
-      values.push(input.registration_number);
-    }
-    if (input.logo_url !== undefined) {
-      fields.push(`logo_url = $${paramIndex++}`);
-      values.push(input.logo_url);
-    }
-
-    if (fields.length === 0) {
-      return this.findCompanyById(companyId);
-    }
-
-    fields.push("updated_at = CURRENT_TIMESTAMP");
-    values.push(companyId);
-
-    const client = await database.connect();
-    try {
-      await client.query("BEGIN");
-
-      const updateQuery = `
-        UPDATE companies
-        SET ${fields.join(", ")}
-        WHERE id = $${paramIndex} AND deleted_at IS NULL
-        RETURNING *;
-      `;
-      const { rows } = await client.query<Company>(updateQuery, values);
-      const updated = rows[0] ?? null;
-
-      if (updated) {
-        // Record audit event
-        await client.query(
-          `INSERT INTO audit_logs (actor_id, action, entity_type, entity_id, metadata, ip_address)
-           VALUES ($1, 'COMPANY_UPDATED', 'company', $2, $3, $4);`,
-          [
-            userId,
-            companyId,
-            JSON.stringify({ updated_fields: Object.keys(input) }),
-            clientIp ?? null,
-          ],
-        );
-      }
-
-      await client.query("COMMIT");
-      return updated;
-    } catch (error) {
-      return rollbackAndRethrow(client, error);
-    } finally {
-      client.release();
-    }
+    return inTransaction(async (session) => {
+      const updated = await CompanyDocument.findOneAndUpdate(
+        { _id: companyId, deleted_at: null },
+        { $set: fields },
+        { new: true, runValidators: true, session },
+      ).lean();
+      if (!updated) return null;
+      const company = serialize<Company>(updated);
+      await recordAudit({
+        actor_id: userId,
+        action: "COMPANY_UPDATED",
+        entity_type: "company",
+        entity_id: companyId,
+        metadata: { updated_fields: Object.keys(input) },
+        ip_address: clientIp,
+      }, session);
+      return company;
+    });
   }
 
-  /**
-   * Retrieves a member record by company ID and user ID.
-   */
-  static async findMember(
-    companyId: string,
-    userId: string,
-  ): Promise<CompanyMember | null> {
-    const query = `
-      SELECT * FROM company_members
-      WHERE company_id = $1 AND user_id = $2;
-    `;
-    const { rows } = await database.query<CompanyMember>(query, [
-      companyId,
-      userId,
-    ]);
-    return rows[0] ?? null;
+  static async findMember(companyId: string, userId: string): Promise<CompanyMember | null> {
+    if (!isObjectId(companyId)) return null;
+    const member = await CompanyMemberDocument.findOne({ company_id: companyId, user_id: userId }).lean();
+    return member ? serialize<CompanyMember>(member) : null;
   }
 
-  /**
-   * Retrieves a member record by company ID and member record ID.
-   */
-  static async findMemberById(
-    companyId: string,
-    memberId: string,
-  ): Promise<CompanyMember | null> {
-    const query = `
-      SELECT * FROM company_members
-      WHERE company_id = $1 AND id = $2;
-    `;
-    const { rows } = await database.query<CompanyMember>(query, [
-      companyId,
-      memberId,
-    ]);
-    return rows[0] ?? null;
+  static async findMemberById(companyId: string, memberId: string): Promise<CompanyMember | null> {
+    if (!isObjectId(companyId) || !isObjectId(memberId)) return null;
+    const member = await CompanyMemberDocument.findOne({ company_id: companyId, _id: memberId }).lean();
+    return member ? serialize<CompanyMember>(member) : null;
   }
 
-  /**
-   * Lists all members for a company.
-   */
   static async listMembers(companyId: string): Promise<CompanyMember[]> {
-    const query = `
-      SELECT id, company_id, user_id, workspace_role, status, joined_at, removed_at, created_at, updated_at
-      FROM company_members
-      WHERE company_id = $1
-      ORDER BY created_at ASC;
-    `;
-    const { rows } = await database.query<CompanyMember>(query, [companyId]);
-    return rows;
+    if (!isObjectId(companyId)) return [];
+    const members = await CompanyMemberDocument.find({ company_id: companyId }).sort({ created_at: 1 }).lean();
+    return members.map((member: unknown) => serialize<CompanyMember>(member));
   }
 
-  /**
-   * Checks if a user is an admin of a specific company.
-   */
   static async isCompanyAdmin(userId: string): Promise<string | null> {
-    const query = `
-      SELECT company_id FROM company_members
-      WHERE user_id = $1
-        AND workspace_role = 'ADMIN'
-        AND status = 'ACTIVE'
-      LIMIT 1;
-    `;
-    const { rows } = await database.query<{ company_id: string }>(query, [
-      userId,
-    ]);
-    return rows[0]?.company_id ?? null;
+    const member: any = await CompanyMemberDocument.findOne({ user_id: userId, workspace_role: "ADMIN", status: "ACTIVE" }).lean();
+    return member ? String(member.company_id) : null;
   }
 
   static async listActiveAdminCompaniesForUser(
     userId: string,
   ): Promise<Array<Pick<Company, "id" | "name" | "country">>> {
-    const { rows } = await database.query<
-      Pick<Company, "id" | "name" | "country">
-    >(
-      `SELECT c.id, c.name, c.country
-       FROM companies c
-       INNER JOIN company_members m ON m.company_id = c.id
-       WHERE m.user_id = $1
-         AND m.workspace_role = 'ADMIN'
-         AND m.status = 'ACTIVE'
-         AND c.deleted_at IS NULL
-       ORDER BY m.created_at ASC`,
-      [userId],
-    );
-    return rows;
+    const memberships = await CompanyMemberDocument.find({ user_id: userId, workspace_role: "ADMIN", status: "ACTIVE" })
+      .sort({ created_at: 1 }).lean();
+    const ids = memberships.map((member: any) => member.company_id);
+    const companies = await CompanyDocument.find({ _id: { $in: ids }, deleted_at: null }).lean();
+    const byId = new Map(companies.map((company: any) => [String(company._id), company]));
+    return ids.flatMap((id: unknown) => {
+      const company: any = byId.get(String(id));
+      return company ? [{ id: String(company._id), name: company.name, country: company.country ?? null }] : [];
+    });
   }
 
-  /**
-   * Invites a user to a company with a designated workspace role.
-   * If a previous membership existed in REMOVED state, restores to INVITED.
-   */
   static async inviteMember(
     companyId: string,
     invitedUserId: string,
@@ -290,517 +176,224 @@ export class CompanyModel {
     actorId: string,
     clientIp?: string,
   ): Promise<CompanyMember> {
-    const client = await database.connect();
-
-    try {
-      await client.query("BEGIN");
-
-      // Check for existing membership
-      const { rows: existingRows } = await client.query<CompanyMember>(
-        "SELECT * FROM company_members WHERE company_id = $1 AND user_id = $2;",
-        [companyId, invitedUserId],
-      );
-      const existing = existingRows[0];
-
-      let member: CompanyMember;
-
+    if (!isObjectId(companyId)) throw new AppError("Company not found", 404);
+    return inTransaction(async (session) => {
+      const existing = await CompanyMemberDocument.findOne({ company_id: companyId, user_id: invitedUserId }).session(session);
+      let memberDoc: any;
       if (existing) {
-        if (existing.status === "ACTIVE") {
-          throw new AppError(
-            "User is already an active member of this company",
-            409,
-          );
-        }
-        if (existing.status === "INVITED") {
-          throw new AppError(
-            "User already has a pending invitation to this company",
-            409,
-          );
-        }
-
-        // Previous status was REMOVED; re-invite user
-        const updateQuery = `
-          UPDATE company_members
-          SET status = 'INVITED', workspace_role = $1, removed_at = NULL, updated_at = CURRENT_TIMESTAMP
-          WHERE id = $2
-          RETURNING *;
-        `;
-        const { rows } = await client.query<CompanyMember>(updateQuery, [
-          role,
-          existing.id,
-        ]);
-        member = rows[0];
+        if (existing.status === "ACTIVE") throw new AppError("User is already an active member of this company", 409);
+        if (existing.status === "INVITED") throw new AppError("User already has a pending invitation to this company", 409);
+        memberDoc = await CompanyMemberDocument.findByIdAndUpdate(
+          existing._id,
+          { $set: { status: "INVITED", workspace_role: role, removed_at: null } },
+          { new: true, runValidators: true, session },
+        );
       } else {
-        // Fresh invitation
-        const insertQuery = `
-          INSERT INTO company_members (
-            company_id, user_id, workspace_role, status
-          ) VALUES ($1, $2, $3, 'INVITED')
-          RETURNING *;
-        `;
-        const { rows } = await client.query<CompanyMember>(insertQuery, [
-          companyId,
-          invitedUserId,
-          role,
-        ]);
-        member = rows[0];
+        [memberDoc] = await CompanyMemberDocument.create(
+          [{ company_id: companyId, user_id: invitedUserId, workspace_role: role, status: "INVITED" }],
+          { session },
+        );
       }
-
-      // Record audit event
-      await client.query(
-        `INSERT INTO audit_logs (actor_id, action, entity_type, entity_id, metadata, ip_address)
-         VALUES ($1, 'MEMBER_INVITED', 'company_member', $2, $3, $4);`,
-        [
-          actorId,
-          member.id,
-          JSON.stringify({
-            company_id: companyId,
-            invited_user_id: invitedUserId,
-            assigned_role: role,
-          }),
-          clientIp ?? null,
-        ],
-      );
-
-      await client.query("COMMIT");
+      const member = serialize<CompanyMember>(memberDoc);
+      await recordAudit({
+        actor_id: actorId,
+        action: "MEMBER_INVITED",
+        entity_type: "company_member",
+        entity_id: member.id,
+        metadata: { company_id: companyId, invited_user_id: invitedUserId, assigned_role: role },
+        ip_address: clientIp,
+      }, session);
       return member;
-    } catch (error) {
-      return rollbackAndRethrow(client, error);
-    } finally {
-      client.release();
-    }
+    });
   }
 
-  /**
-   * Accepts a pending invitation for the authenticated user, transitioning status to ACTIVE.
-   */
   static async acceptInvite(
     companyId: string,
     userId: string,
     clientIp?: string,
   ): Promise<CompanyMember | null> {
-    const client = await database.connect();
-
-    try {
-      await client.query("BEGIN");
-
-      const updateQuery = `
-        UPDATE company_members
-        SET status = 'ACTIVE', joined_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
-        WHERE company_id = $1 AND user_id = $2 AND status = 'INVITED'
-        RETURNING *;
-      `;
-      const { rows } = await client.query<CompanyMember>(updateQuery, [
-        companyId,
-        userId,
-      ]);
-      const member = rows[0] ?? null;
-
-      if (member) {
-        await client.query(
-          `INSERT INTO audit_logs (actor_id, action, entity_type, entity_id, metadata, ip_address)
-           VALUES ($1, 'MEMBER_ACCEPTED', 'company_member', $2, $3, $4);`,
-          [
-            userId,
-            member.id,
-            JSON.stringify({
-              company_id: companyId,
-              role: member.workspace_role,
-            }),
-            clientIp ?? null,
-          ],
-        );
-      }
-
-      await client.query("COMMIT");
+    if (!isObjectId(companyId)) return null;
+    return inTransaction(async (session) => {
+      const memberDoc = await CompanyMemberDocument.findOneAndUpdate(
+        { company_id: companyId, user_id: userId, status: "INVITED" },
+        { $set: { status: "ACTIVE", joined_at: new Date() } },
+        { new: true, runValidators: true, session },
+      );
+      if (!memberDoc) return null;
+      const member = serialize<CompanyMember>(memberDoc);
+      await recordAudit({
+        actor_id: userId,
+        action: "MEMBER_ACCEPTED",
+        entity_type: "company_member",
+        entity_id: member.id,
+        metadata: { company_id: companyId, role: member.workspace_role },
+        ip_address: clientIp,
+      }, session);
       return member;
-    } catch (error) {
-      return rollbackAndRethrow(client, error);
-    } finally {
-      client.release();
-    }
+    });
   }
 
-  /**
-   * Soft-removes a member from a company by updating status to REMOVED and setting removed_at.
-   * Zero hard deletes (PRD §14).
-   */
   static async softRemoveMember(
     companyId: string,
     memberId: string,
     actorId: string,
     clientIp?: string,
   ): Promise<CompanyMember | null> {
-    const client = await database.connect();
-
-    try {
-      await client.query("BEGIN");
-
-      // Verify member exists and is not already removed
-      await client.query("SELECT id FROM companies WHERE id = $1 FOR UPDATE", [
-        companyId,
-      ]);
-      const { rows: memberRows } = await client.query<CompanyMember>(
-        "SELECT * FROM company_members WHERE company_id = $1 AND id = $2 FOR UPDATE;",
-        [companyId, memberId],
-      );
-      const targetMember = memberRows[0];
-
-      if (!targetMember) {
-        await client.query("ROLLBACK");
-        return null;
+    if (!isObjectId(companyId) || !isObjectId(memberId)) return null;
+    return inTransaction(async (session) => {
+      const target = await CompanyMemberDocument.findOne({ company_id: companyId, _id: memberId }).session(session);
+      if (!target) return null;
+      if (target.status === "REMOVED") return serialize<CompanyMember>(target);
+      if (target.workspace_role === "ADMIN" && target.status === "ACTIVE") {
+        const admins = await CompanyMemberDocument.countDocuments({ company_id: companyId, workspace_role: "ADMIN", status: "ACTIVE" }).session(session);
+        if (admins <= 1) throw new AppError("Cannot remove the sole active administrator of a company", 400);
       }
-
-      if (targetMember.status === "REMOVED") {
-        await client.query("ROLLBACK");
-        return targetMember;
-      }
-
-      // Guard: Ensure we do not remove the sole remaining ACTIVE ADMIN
-      if (
-        targetMember.workspace_role === "ADMIN" &&
-        targetMember.status === "ACTIVE"
-      ) {
-        const { rows: adminCountRows } = await client.query<{ count: string }>(
-          "SELECT COUNT(*) AS count FROM company_members WHERE company_id = $1 AND workspace_role = 'ADMIN' AND status = 'ACTIVE';",
-          [companyId],
-        );
-        const adminCount = Number.parseInt(adminCountRows[0].count, 10);
-        if (adminCount <= 1) {
-          throw new AppError(
-            "Cannot remove the sole active administrator of a company",
-            400,
-          );
-        }
-      }
-
-      // Soft removal
-      const updateQuery = `
-        UPDATE company_members
-        SET status = 'REMOVED', removed_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
-        WHERE id = $1
-        RETURNING *;
-      `;
-      const { rows } = await client.query<CompanyMember>(updateQuery, [
+      const updatedDoc = await CompanyMemberDocument.findByIdAndUpdate(
         memberId,
-      ]);
-      const updatedMember = rows[0];
-
-      // Record audit event
-      await client.query(
-        `INSERT INTO audit_logs (actor_id, action, entity_type, entity_id, metadata, ip_address)
-         VALUES ($1, 'MEMBER_REMOVED', 'company_member', $2, $3, $4);`,
-        [
-          actorId,
-          memberId,
-          JSON.stringify({
-            company_id: companyId,
-            removed_user_id: targetMember.user_id,
-            previous_role: targetMember.workspace_role,
-          }),
-          clientIp ?? null,
-        ],
+        { $set: { status: "REMOVED", removed_at: new Date() } },
+        { new: true, runValidators: true, session },
       );
-
-      await client.query("COMMIT");
-      return updatedMember;
-    } catch (error) {
-      return rollbackAndRethrow(client, error);
-    } finally {
-      client.release();
-    }
+      const member = serialize<CompanyMember>(updatedDoc);
+      await recordAudit({
+        actor_id: actorId,
+        action: "MEMBER_REMOVED",
+        entity_type: "company_member",
+        entity_id: memberId,
+        metadata: { company_id: companyId, removed_user_id: target.user_id, previous_role: target.workspace_role },
+        ip_address: clientIp,
+      }, session);
+      return member;
+    });
   }
 
-  /**
-   * Submits company verification documents and transitions company status to PENDING_REVIEW (PRD §4.2).
-   */
   static async submitVerification(
     companyId: string,
     input: SubmitVerificationInput,
     userId: string,
     clientIp?: string,
   ): Promise<CompanyVerification> {
-    const client = await database.connect();
-
-    try {
-      await client.query("BEGIN");
-
-      // Verify company exists
-      const { rows: companyRows } = await client.query<Company>(
-        "SELECT * FROM companies WHERE id = $1 AND deleted_at IS NULL;",
-        [companyId],
+    if (!isObjectId(companyId)) throw new AppError("Company not found", 404);
+    return inTransaction(async (session) => {
+      const company = await CompanyDocument.findOne({ _id: companyId, deleted_at: null }).session(session);
+      if (!company) throw new AppError("Company not found", 404);
+      const [verificationDoc] = await CompanyVerificationDocument.create(
+        [{ company_id: companyId, status: "PENDING_REVIEW", documents: input.documents }],
+        { session },
       );
-      const company = companyRows[0];
-      if (!company) {
-        throw new AppError("Company not found", 404);
-      }
-
-      // 1. Insert verification submission
-      const insertVerificationQuery = `
-        INSERT INTO company_verifications (
-          company_id, status, documents
-        ) VALUES ($1, 'PENDING_REVIEW', $2)
-        RETURNING *;
-      `;
-      const { rows: verificationRows } =
-        await client.query<CompanyVerification>(insertVerificationQuery, [
-          companyId,
-          JSON.stringify(input.documents),
-        ]);
-      const verification = verificationRows[0];
-
-      // 2. Update company verification_status and registration_number if supplied
-      if (input.registration_number) {
-        await client.query(
-          `UPDATE companies 
-           SET verification_status = 'PENDING_REVIEW', registration_number = $1, updated_at = CURRENT_TIMESTAMP
-           WHERE id = $2;`,
-          [input.registration_number, companyId],
-        );
-      } else {
-        await client.query(
-          `UPDATE companies 
-           SET verification_status = 'PENDING_REVIEW', updated_at = CURRENT_TIMESTAMP
-           WHERE id = $1;`,
-          [companyId],
-        );
-      }
-
-      // 3. Emit immutable audit log
-      await client.query(
-        `INSERT INTO audit_logs (actor_id, action, entity_type, entity_id, metadata, ip_address)
-         VALUES ($1, 'VERIFICATION_SUBMITTED', 'company_verification', $2, $3, $4);`,
-        [
-          userId,
-          verification.id,
-          JSON.stringify({
-            company_id: companyId,
-            documents_count: input.documents.length,
-            registration_number:
-              input.registration_number ?? company.registration_number,
-          }),
-          clientIp ?? null,
-        ],
-      );
-
-      await client.query("COMMIT");
+      const set: Record<string, unknown> = { verification_status: "PENDING_REVIEW" };
+      if (input.registration_number) set.registration_number = input.registration_number;
+      await CompanyDocument.updateOne({ _id: companyId }, { $set: set }, { session });
+      const verification = serialize<CompanyVerification>(verificationDoc);
+      await recordAudit({
+        actor_id: userId,
+        action: "VERIFICATION_SUBMITTED",
+        entity_type: "company_verification",
+        entity_id: verification.id,
+        metadata: {
+          company_id: companyId,
+          documents_count: input.documents.length,
+          registration_number: input.registration_number ?? company.registration_number,
+        },
+        ip_address: clientIp,
+      }, session);
       return verification;
-    } catch (error) {
-      return rollbackAndRethrow(client, error);
-    } finally {
-      client.release();
-    }
+    });
   }
 
-  /**
-   * Retrieves all verification submissions for a specific company, sorted newest first.
-   */
-  static async listCompanyVerifications(
-    companyId: string,
-  ): Promise<CompanyVerification[]> {
-    const query = `
-      SELECT * FROM company_verifications
-      WHERE company_id = $1
-      ORDER BY created_at DESC;
-    `;
-    const { rows } = await database.query<CompanyVerification>(query, [
-      companyId,
-    ]);
-    return rows;
+  static async listCompanyVerifications(companyId: string): Promise<CompanyVerification[]> {
+    if (!isObjectId(companyId)) return [];
+    const verifications = await CompanyVerificationDocument.find({ company_id: companyId }).sort({ created_at: -1 }).lean();
+    return verifications.map((verification: unknown) => serialize<CompanyVerification>(verification));
   }
 
-  /**
-   * Retrieves a single verification record by its ID.
-   */
-  static async findVerificationById(
-    verificationId: string,
-  ): Promise<CompanyVerification | null> {
-    const query = `
-      SELECT * FROM company_verifications
-      WHERE id = $1;
-    `;
-    const { rows } = await database.query<CompanyVerification>(query, [
-      verificationId,
-    ]);
-    return rows[0] ?? null;
+  static async findVerificationById(verificationId: string): Promise<CompanyVerification | null> {
+    if (!isObjectId(verificationId)) return null;
+    const verification = await CompanyVerificationDocument.findById(verificationId).lean();
+    return verification ? serialize<CompanyVerification>(verification) : null;
   }
 
-  /**
-   * Lists all pending verification requests across all companies for platform administrators.
-   */
-  static async listPendingVerifications(): Promise<
-    (CompanyVerification & {
-      company_name: string;
-      company_country?: string | null;
-    })[]
-  > {
-    const query = `
-      SELECT 
-        v.*,
-        c.name AS company_name,
-        c.country AS company_country
-      FROM company_verifications v
-      JOIN companies c ON c.id = v.company_id
-      WHERE v.status = 'PENDING_REVIEW'
-      ORDER BY v.created_at ASC;
-    `;
-    const { rows } = await database.query<
-      CompanyVerification & {
-        company_name: string;
-        company_country?: string | null;
-      }
-    >(query);
-    return rows;
+  static async listPendingVerifications(): Promise<(CompanyVerification & { company_name: string; company_country?: string | null })[]> {
+    const pending = await CompanyVerificationDocument.find({ status: "PENDING_REVIEW" }).sort({ created_at: 1 }).lean();
+    const companyIds = pending.map((verification: any) => verification.company_id);
+    const companies = await CompanyDocument.find({ _id: { $in: companyIds } }).lean();
+    const byId = new Map(companies.map((company: any) => [String(company._id), company]));
+    return pending.flatMap((raw: any) => {
+      const verification = serialize<CompanyVerification>(raw);
+      const company: any = byId.get(verification.company_id);
+      return company ? [{ ...verification, company_name: company.name, company_country: company.country ?? null }] : [];
+    });
   }
 
-  /**
-   * Retrieves admin dashboard metrics.
-   */
   static async getAdminDashboardMetrics(companyId: string): Promise<{
     total_opportunities: number;
     published_opportunities: number;
     draft_opportunities: number;
     total_views: number;
-    last_3_opportunities: Array<{
-      id: string;
-      title: string;
-      status: string;
-      views: number;
-      created_at: Date;
-    }>;
+    last_3_opportunities: Array<{ id: string; title: string; status: string; views: number; created_at: Date }>;
   }> {
-    const query = `
-      WITH company_opportunities AS (
-        SELECT id, title, status, views_count, created_at
-        FROM opportunities
-        WHERE company_id = $1
-      ),
-      recent_opportunities AS (
-        SELECT id, title, status, views_count, created_at
-        FROM company_opportunities
-        ORDER BY created_at DESC
-        LIMIT 3
-      )
-      SELECT
-        (SELECT COUNT(*)::int FROM company_opportunities) AS total_opportunities,
-        (SELECT COUNT(*)::int FROM company_opportunities WHERE status = 'published') AS published_opportunities,
-        (SELECT COUNT(*)::int FROM company_opportunities WHERE status = 'draft') AS draft_opportunities,
-        (SELECT COALESCE(SUM(views_count), 0)::int FROM company_opportunities) AS total_views,
-        COALESCE(
-          (
-            SELECT json_agg(json_build_object(
-              'id', id,
-              'title', title,
-              'status', status,
-              'views', views_count,
-              'created_at', created_at
-            ) ORDER BY created_at DESC)
-            FROM recent_opportunities
-          ),
-          '[]'::json
-        ) AS last_3_opportunities;
-    `;
-    const { rows } = await database.query(query, [companyId]);
-    return rows[0];
+    if (!isObjectId(companyId)) return { total_opportunities: 0, published_opportunities: 0, draft_opportunities: 0, total_views: 0, last_3_opportunities: [] };
+    const opportunities = await OpportunityDocument.find(companyIdFilter(companyId)).sort({ created_at: -1 }).lean();
+    return {
+      total_opportunities: opportunities.length,
+      published_opportunities: opportunities.filter((item: any) => item.status === "published").length,
+      draft_opportunities: opportunities.filter((item: any) => item.status === "draft").length,
+      total_views: opportunities.reduce((sum: number, item: any) => sum + Number(item.views_count ?? 0), 0),
+      last_3_opportunities: opportunities.slice(0, 3).map((item: any) => ({
+        id: String(item._id), title: item.title, status: item.status,
+        views: Number(item.views_count ?? 0), created_at: item.created_at,
+      })),
+    };
   }
 
-  /**
-   * Get List of Jobs posted by a company
-   */
   static async listAllPostedJobs(companyId: string) {
-    const query = `
-     SELECT * FROM opportunities
-      WHERE company_id = $1;
-    `;
-    const { rows } = await database.query(query, [companyId]);
-    return rows;
+    if (!isObjectId(companyId)) return [];
+    const opportunities = await OpportunityDocument.find(companyIdFilter(companyId)).lean();
+    return opportunities.map((item: any) => {
+      const result = { ...item, id: String(item._id), company_id: String(item.company_id) };
+      delete result._id;
+      delete result.__v;
+      return result;
+    });
   }
 
-  /**
-   * Decides a verification submission (APPROVED or REJECTED) with audit trail and company status update (PRD §4.2).
-   */
   static async decideVerification(
     verificationId: string,
     input: AdminVerificationDecisionInput,
     adminUserId: string,
     clientIp?: string,
   ): Promise<{ verification: CompanyVerification; company: Company }> {
-    const client = await database.connect();
-
-    try {
-      await client.query("BEGIN");
-
-      // Lock and fetch target verification record
-      const { rows: vRows } = await client.query<CompanyVerification>(
-        "SELECT * FROM company_verifications WHERE id = $1 FOR UPDATE;",
-        [verificationId],
-      );
-      const targetVerification = vRows[0];
-
-      if (!targetVerification) {
-        throw new AppError("Verification record not found", 404);
+    if (!isObjectId(verificationId)) throw new AppError("Verification record not found", 404);
+    return inTransaction(async (session) => {
+      const target = await CompanyVerificationDocument.findById(verificationId).session(session);
+      if (!target) throw new AppError("Verification record not found", 404);
+      if (target.status !== "PENDING_REVIEW") {
+        throw new AppError(`Verification has already been decided: current status is ${target.status}`, 409);
       }
-
-      if (targetVerification.status !== "PENDING_REVIEW") {
-        throw new AppError(
-          `Verification has already been decided: current status is ${targetVerification.status}`,
-          409,
-        );
-      }
-
-      // 1. Update verification record
-      const updateVerificationQuery = `
-        UPDATE company_verifications
-        SET status = $1, reviewer_id = $2, review_notes = $3, decided_at = CURRENT_TIMESTAMP
-        WHERE id = $4
-        RETURNING *;
-      `;
-      const { rows: updatedVRows } = await client.query<CompanyVerification>(
-        updateVerificationQuery,
-        [input.status, adminUserId, input.review_notes ?? null, verificationId],
+      const updatedVerificationDoc = await CompanyVerificationDocument.findByIdAndUpdate(
+        verificationId,
+        { $set: { status: input.status, reviewer_id: adminUserId, review_notes: input.review_notes ?? null, decided_at: new Date() } },
+        { new: true, runValidators: true, session },
       );
-      const updatedVerification = updatedVRows[0];
-
-      // 2. Update company verification_status (APPROVED -> VERIFIED, REJECTED -> REJECTED)
-      const targetCompanyStatus =
-        input.status === "APPROVED" ? "VERIFIED" : "REJECTED";
-      const updateCompanyQuery = `
-        UPDATE companies
-        SET verification_status = $1, updated_at = CURRENT_TIMESTAMP
-        WHERE id = $2
-        RETURNING *;
-      `;
-      const { rows: updatedCRows } = await client.query<Company>(
-        updateCompanyQuery,
-        [targetCompanyStatus, targetVerification.company_id],
+      const targetCompanyStatus = input.status === "APPROVED" ? "VERIFIED" : "REJECTED";
+      const updatedCompanyDoc = await CompanyDocument.findByIdAndUpdate(
+        target.company_id,
+        { $set: { verification_status: targetCompanyStatus } },
+        { new: true, runValidators: true, session },
       );
-      const updatedCompany = updatedCRows[0];
-
-      // 3. Emit immutable audit log
-      const auditAction =
-        input.status === "APPROVED" ? "COMPANY_VERIFIED" : "COMPANY_REJECTED";
-      await client.query(
-        `INSERT INTO audit_logs (actor_id, action, entity_type, entity_id, metadata, ip_address)
-         VALUES ($1, $2, 'company_verification', $3, $4, $5);`,
-        [
-          adminUserId,
-          auditAction,
-          verificationId,
-          JSON.stringify({
-            company_id: targetVerification.company_id,
-            decision: input.status,
-            review_notes: input.review_notes ?? null,
-          }),
-          clientIp ?? null,
-        ],
-      );
-
-      await client.query("COMMIT");
-      return { verification: updatedVerification, company: updatedCompany };
-    } catch (error) {
-      return rollbackAndRethrow(client, error);
-    } finally {
-      client.release();
-    }
+      if (!updatedCompanyDoc) throw new AppError("Company not found", 404);
+      await recordAudit({
+        actor_id: adminUserId,
+        action: input.status === "APPROVED" ? "COMPANY_VERIFIED" : "COMPANY_REJECTED",
+        entity_type: "company_verification",
+        entity_id: verificationId,
+        metadata: { company_id: String(target.company_id), decision: input.status, review_notes: input.review_notes ?? null },
+        ip_address: clientIp,
+      }, session);
+      return {
+        verification: serialize<CompanyVerification>(updatedVerificationDoc),
+        company: serialize<Company>(updatedCompanyDoc),
+      };
+    });
   }
 }
+

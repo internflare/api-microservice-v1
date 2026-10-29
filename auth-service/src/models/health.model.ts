@@ -1,6 +1,12 @@
-import { database } from "../auth.js";
+import mongoose from "mongoose";
 
-// The model owns the persistence check used by the health endpoint.
-export async function checkDatabaseConnection(): Promise<void> {
-  await database.query("SELECT 1");
+// Healthy only when MongoDB answers a ping; a stale readyState alone is not trusted.
+export async function checkDatabaseConnection(): Promise<boolean> {
+  try {
+    if (mongoose.connection.readyState !== 1 || !mongoose.connection.db) return false;
+    await mongoose.connection.db.admin().ping();
+    return true;
+  } catch {
+    return false;
+  }
 }

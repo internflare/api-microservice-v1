@@ -10,19 +10,19 @@ export interface SignedUpUser {
   createdAt: string;
 }
 
-export interface UserSignedUpEvent {
-  eventId: string;
-  eventType: "user.signed_up";
-  occurredAt: string;
-  user: SignedUpUser;
-}
-
 export interface EmailVerificationRequestedEvent {
   eventId: string;
   eventType: "user.email_verification_requested";
   occurredAt: string;
   user: SignedUpUser;
   verificationUrl: string;
+}
+
+export interface PasswordChangedEvent {
+  eventId: string;
+  eventType: "user.password_changed";
+  occurredAt: string;
+  user: SignedUpUser;
 }
 
 let connection: ChannelModel | undefined;
@@ -78,14 +78,22 @@ async function getPublisherChannel(): Promise<ConfirmChannel> {
   return channelPromise;
 }
 
-// Confirm the durable queue accepted each signup event before reporting publish success.
-async function queueSignupNotification(user: SignedUpUser): Promise<void> {
+// Shared publish path: wraps the payload in the standard event envelope, sends it to the
+// durable queue and waits for the broker's confirmation before reporting success.
+async function publishEvent<
+  TType extends string,
+  TPayload extends Record<string, unknown>,
+>(
+  eventType: TType,
+  payload: TPayload,
+  eventId: string = randomUUID(),
+): Promise<void> {
   const channel = await getPublisherChannel();
-  const event: UserSignedUpEvent = {
-    eventId: randomUUID(),
-    eventType: "user.signed_up",
+  const event = {
+    eventId,
+    eventType,
     occurredAt: new Date().toISOString(),
-    user,
+    ...payload,
   };
 
   channel.sendToQueue(
@@ -94,12 +102,12 @@ async function queueSignupNotification(user: SignedUpUser): Promise<void> {
     {
       contentType: "application/json",
       persistent: true,
-      messageId: event.eventId,
+      messageId: eventId,
       timestamp: Date.now(),
     },
   );
   await channel.waitForConfirms();
-  logger("info", `Queued signup notification ${event.eventId}`);
+  logger("info", `Queued ${eventType} event ${eventId}`);
 }
 
 // Close publisher resources during graceful service shutdown.
@@ -117,67 +125,33 @@ async function closeNotificationPublisher(): Promise<void> {
   }
 }
 
-export { queueSignupNotification, closeNotificationPublisher };
-
-export interface PasswordResetRequestedEvent {
-  eventId: string;
-  eventType: "user.password_reset_requested";
-  occurredAt: string;
-  user: SignedUpUser;
-  resetUrl: string;
-}
-
 // Queue the reset email; the notification-service renders and sends it.
-export async function queuePasswordReset(
+async function queuePasswordReset(
   user: SignedUpUser,
   resetUrl: string,
 ): Promise<void> {
-  const channel = await getPublisherChannel();
-  const event: PasswordResetRequestedEvent = {
-    eventId: randomUUID(),
-    eventType: "user.password_reset_requested",
-    occurredAt: new Date().toISOString(),
-    user,
-    resetUrl,
-  };
-
-  channel.sendToQueue(
-    config.notificationQueue,
-    Buffer.from(JSON.stringify(event)),
-    {
-      contentType: "application/json",
-      persistent: true,
-      messageId: event.eventId,
-      timestamp: Date.now(),
-    },
-  );
-  await channel.waitForConfirms();
-  logger("info", `Queued password reset email for user ${user.id}`);
+  await publishEvent("user.password_reset_requested", { user, resetUrl });
 }
 
-export async function queueEmailVerification(
+// Queue the verification email with the link Better Auth generated.
+async function queueEmailVerification(
   user: SignedUpUser,
   verificationUrl: string,
 ): Promise<void> {
-  const channel = await getPublisherChannel();
-  const event: EmailVerificationRequestedEvent = {
-    eventId: randomUUID(),
-    eventType: "user.email_verification_requested",
-    occurredAt: new Date().toISOString(),
+  await publishEvent("user.email_verification_requested", {
     user,
     verificationUrl,
-  };
-
-  channel.sendToQueue(
-    config.notificationQueue,
-    Buffer.from(JSON.stringify(event)),
-    {
-      contentType: "application/json",
-      persistent: true,
-      messageId: event.eventId,
-      timestamp: Date.now(),
-    },
-  );
-  await channel.waitForConfirms();
-  logger("info", `Queued email verification for user ${user.id}`);
+  });
 }
+
+// Queue the password-changed confirmation; the notification-service renders and sends it.
+async function queuePasswordChanged(user: SignedUpUser): Promise<void> {
+  await publishEvent("user.password_changed", { user });
+}
+
+export {
+  queuePasswordReset,
+  queueEmailVerification,
+  queuePasswordChanged,
+  closeNotificationPublisher,
+};

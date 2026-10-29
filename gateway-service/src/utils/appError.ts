@@ -1,3 +1,4 @@
+// Custom error class for handling operational errors in the application.
 class AppError extends Error {
   public statusCode: number;
   public status: string;
