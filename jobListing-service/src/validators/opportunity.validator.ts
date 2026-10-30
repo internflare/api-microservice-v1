@@ -23,15 +23,11 @@ const nullableMoney = z
   .optional();
 const todayStart = () => {
   const today = new Date();
-  today.setHours(0, 0, 0, 0);
+  today.setUTCHours(0, 0, 0, 0);
   return today;
 };
-const isOnOrAfterToday = (value: string | Date | null | undefined): boolean => {
-  if (value == null) return true;
-  const date = value instanceof Date ? new Date(value) : new Date(value);
-  if (Number.isNaN(date.getTime())) return true;
-  return date >= todayStart();
-};
+const isOnOrAfterToday = (value: string): boolean =>
+  new Date(value) >= todayStart();
 
 // Fields shared by the create and update payloads.
 const opportunityFields = {
@@ -71,25 +67,21 @@ const opportunityFields = {
     .max(100)
     .optional(),
   duration_weeks: z.number().int().positive().max(520).nullable().optional(),
-  start_date: z
-    .string()
-    .trim()
-    .refine((value) => value === "" || value === null || isOnOrAfterToday(value), {
-      message: "start_date cannot be before today",
-    })
+  start_date: z.iso
+    .date()
+    .refine(isOnOrAfterToday, { message: "start_date cannot be before today" })
     .nullable()
     .optional(),
-  application_deadline: z
-    .string()
-    .trim()
-    .refine((value) => value === "" || value === null || isOnOrAfterToday(value), {
+  application_deadline: z.iso
+    .datetime()
+    .refine(isOnOrAfterToday, {
       message: "application_deadline cannot be before today",
     })
-    .transform((value) => (value ? new Date(value) : null))
+    .transform((value) => new Date(value))
     .nullable()
     .optional(),
   openings: z.number().int().positive().max(1_000_000).nullable().optional(),
-  status: z.enum(["draft", "published", "paused", "closed"]).optional(),
+  status: z.enum(["published", "paused", "closed"]).optional(),
 };
 
 // Shared rule: when both bounds are set, the minimum must not exceed the maximum.
@@ -108,32 +100,28 @@ const compensationRangeRule = {
   },
 };
 
-const dateOrderRule = {
-  check: (data: {
-    start_date?: string | null;
-    application_deadline?: Date | null;
-  }) => {
-    if (!data.start_date || !data.application_deadline) return true;
-    const startDate = new Date(data.start_date);
-    const deadline = new Date(data.application_deadline);
-    return Number.isNaN(startDate.getTime()) || Number.isNaN(deadline.getTime()) || deadline >= startDate;
-  },
-  options: {
-    message: "application_deadline cannot be after start_date",
-    path: ["application_deadline"],
-  },
+const createFields = {
+  company_id: objectIdSchema,
+  source_type: z.string().trim().min(1).max(100).default("employer"),
+  ...opportunityFields,
 };
+
+// Drafts are stored in Redis only and carry the same fields as a listing (minus status).
+const draftSchema = z
+  .object(createFields)
+  .omit({ status: true })
+  .strict()
+  .refine(compensationRangeRule.check, compensationRangeRule.options);
 
 const createOpportunitySchema = z
   .object({
-    company_id: objectIdSchema,
-    source_type: z.string().trim().min(1).max(100).default("employer"),
-    ...opportunityFields,
+    ...createFields,
     follower_recipients: z.array(recipientSchema).max(10_000).optional(),
+    // When publishing from a saved draft, the draft is removed once the listing exists.
+    draft_id: objectIdSchema.optional(),
   })
   .strict()
-  .refine(compensationRangeRule.check, compensationRangeRule.options)
-  .refine(dateOrderRule.check, dateOrderRule.options);
+  .refine(compensationRangeRule.check, compensationRangeRule.options);
 
 const updateOpportunitySchema = z
   .object(opportunityFields)
@@ -142,8 +130,7 @@ const updateOpportunitySchema = z
   .refine((input) => Object.keys(input).length > 0, {
     message: "At least one editable field is required",
   })
-  .refine(compensationRangeRule.check, compensationRangeRule.options)
-  .refine(dateOrderRule.check, dateOrderRule.options);
+  .refine(compensationRangeRule.check, compensationRangeRule.options);
 
 const applicationSchema = z.object({
   applicant_name: z.string().trim().min(1).max(120),
@@ -188,6 +175,7 @@ export {
   applicationSchema,
   companyListPaginationSchema,
   createOpportunitySchema,
+  draftSchema,
   formatValidationError,
   objectIdSchema,
   paginationSchema,

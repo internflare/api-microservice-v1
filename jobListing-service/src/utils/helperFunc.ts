@@ -7,7 +7,7 @@ async function checkAdmin(
   companyId: string,
   userId: string,
 ): Promise<{ name: string; id: string } | false> {
-  if (!Types.ObjectId.isValid(companyId)) return false;
+  if (!Types.ObjectId.isValid(companyId) || !Types.ObjectId.isValid(userId)) return false;
   const companyObjectId = new Types.ObjectId(companyId);
 
   const membership = await mongoose.connection
@@ -15,7 +15,7 @@ async function checkAdmin(
     .findOne(
       {
         company_id: companyObjectId,
-        user_id: userId,
+        user_id: new Types.ObjectId(userId),
         workspace_role: "ADMIN",
         status: "ACTIVE",
       },

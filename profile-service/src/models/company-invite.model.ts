@@ -69,7 +69,7 @@ export class CompanyInviteModel {
       company_name: company.name,
       email: invite.email,
       workspace_role: invite.workspace_role,
-      invited_by: invite.invited_by,
+      invited_by: String(invite.invited_by),
     };
   }
 

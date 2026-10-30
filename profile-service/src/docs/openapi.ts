@@ -579,7 +579,7 @@ export const openApiDocument = {
         type: "object",
         properties: {
           id: { type: "string", pattern: "^[a-fA-F0-9]{24}$", description: "MongoDB ObjectId" },
-          user_id: { type: "string", description: "Better Auth user id" },
+          user_id: { type: "string", pattern: "^[a-fA-F0-9]{24}$", description: "Better Auth user id (stored as ObjectId)" },
           full_name: { type: "string", nullable: true, example: "Jane Developer" },
           headline: { type: "string", nullable: true, example: "Senior Backend Engineer" },
           phone: { type: "string", nullable: true, example: "+1234567890" },

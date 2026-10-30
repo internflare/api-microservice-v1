@@ -1,10 +1,19 @@
 ﻿import mongoose, { Schema } from "mongoose";
 
+// Foreign-key fields stored as ObjectId but exposed as strings in API responses.
+export const OBJECT_ID_FIELDS = ["company_id", "user_id", "created_by", "reviewer_id", "actor_id", "entity_id"] as const;
+
+export function stringifyObjectIds(value: Record<string, unknown>): void {
+  for (const key of OBJECT_ID_FIELDS) {
+    if (value[key] != null) value[key] = String(value[key]);
+  }
+}
+
 const transformId = (_doc: unknown, value: Record<string, unknown>) => {
   value.id = String(value._id);
   delete value._id;
   delete value.__v;
-  if (value.company_id != null) value.company_id = String(value.company_id);
+  stringifyObjectIds(value);
   return value;
 };
 
@@ -26,7 +35,7 @@ const companySchema = new Schema(
       default: "UNVERIFIED",
       required: true,
     },
-    created_by: { type: String, required: true },
+    created_by: { type: Schema.Types.ObjectId, ref: "user", required: true },
     deleted_at: { type: Date, default: null },
   },
   { ...jsonOptions, timestamps: { createdAt: "created_at", updatedAt: "updated_at" } },
@@ -35,7 +44,7 @@ const companySchema = new Schema(
 const companyMemberSchema = new Schema(
   {
     company_id: { type: Schema.Types.ObjectId, ref: "Company", required: true },
-    user_id: { type: String, required: true },
+    user_id: { type: Schema.Types.ObjectId, ref: "user", required: true },
     workspace_role: { type: String, enum: ["ADMIN", "MEMBER"], required: true },
     status: { type: String, enum: ["INVITED", "ACTIVE", "REMOVED"], required: true },
     joined_at: { type: Date, default: null },
@@ -63,7 +72,7 @@ const companyVerificationSchema = new Schema(
       enum: ["PENDING_REVIEW", "APPROVED", "REJECTED"],
       required: true,
     },
-    reviewer_id: { type: String, default: null },
+    reviewer_id: { type: Schema.Types.ObjectId, ref: "user", default: null },
     review_notes: { type: String, default: null },
     documents: { type: [verificationDocumentSchema], default: [] },
     decided_at: { type: Date, default: null },
@@ -73,7 +82,7 @@ const companyVerificationSchema = new Schema(
 
 const auditLogSchema = new Schema(
   {
-    actor_id: { type: String, required: true },
+    actor_id: { type: Schema.Types.ObjectId, ref: "user", required: true },
     action: {
       type: String,
       enum: [
@@ -84,7 +93,7 @@ const auditLogSchema = new Schema(
       required: true,
     },
     entity_type: { type: String, enum: ["company", "company_member", "company_verification"], required: true },
-    entity_id: { type: String, required: true },
+    entity_id: { type: Schema.Types.ObjectId, required: true },
     metadata: { type: Schema.Types.Mixed, default: null },
     ip_address: { type: String, default: null },
   },

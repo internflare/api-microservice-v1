@@ -24,6 +24,7 @@ import {
   setCached,
 } from "../services/cache.service.js";
 import { AppError } from "../utils/appError.js";
+import { deleteDraft, loadManagedDraft } from "../services/draft.service.js";
 import { forwardError } from "../utils/forward-error.js";
 import { logger } from "../utils/logger.js";
 import { requireCompanyAdmin } from "../services/company-access.service.js";
@@ -133,6 +134,7 @@ const createOpportunityHandler: RequestHandler = async (
     // const company = await requireCompanyAdmin(parsed.data.company_id, userId)
     const {
       follower_recipients,
+      draft_id: draftId,
       company_id: _companyId,
       ...opportunityInput
     } = parsed.data;
@@ -149,6 +151,17 @@ const createOpportunityHandler: RequestHandler = async (
 
     // New listing makes every cached list for this company stale.
     await invalidateCompany(opportunity.company_id ?? isAdmin.id);
+
+    // Publishing from a draft consumes it. The listing already exists, so a failure here
+    // must not fail the request; the stale draft simply expires.
+    if (draftId) {
+      try {
+        const { draft } = await loadManagedDraft(draftId, userId);
+        if (draft.company_id === isAdmin.id) await deleteDraft(draft);
+      } catch (error) {
+        logger("warn", `Could not remove draft ${draftId} after publishing:`, error);
+      }
+    }
 
     let notificationStatus =
       opportunity.status !== "published"
@@ -390,14 +403,15 @@ const getOpportunityHandler: RequestHandler = async (
     }
 
     // Access checks run for both hits and misses, so cached data never bypasses permissions.
-    const userId = requireUserId(request);
-    if (!opportunity.company_id) {
-      throw new AppError("Opportunity has no associated company", 404);
-    }
-    const isAdmin = await checkAdmin(opportunity.company_id, userId);
-    if (opportunity.status !== "published" && !isAdmin) {
-      // Unpublished listings are visible only to admins of the owning company.
-      throw new AppError("User is not an active admin of the company", 403);
+    // Published listings are public; anything else is visible only to admins of the owning company.
+    if (opportunity.status !== "published") {
+      const userId = requireUserId(request);
+      if (!opportunity.company_id) {
+        throw new AppError("Opportunity has no associated company", 404);
+      }
+      if (!(await checkAdmin(opportunity.company_id, userId))) {
+        throw new AppError("User is not an active admin of the company", 403);
+      }
     }
 
     // Cache miss: save the fresh record (only after access checks pass), then respond.

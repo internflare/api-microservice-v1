@@ -130,6 +130,7 @@ async function invalidateSaved(talentId: string): Promise<void> {
 
 export {
   allSavedListIndexKey,
+  client as cacheClient,
   closeCache,
   companyListIndexKey,
   companyListKey,

@@ -4,7 +4,7 @@ import mongoose, { Schema } from "mongoose";
 const companyFollowerSchema = new Schema(
   {
     company_id: { type: Schema.Types.ObjectId, ref: "Company", required: true },
-    user_id: { type: String, required: true },
+    user_id: { type: Schema.Types.ObjectId, ref: "user", required: true },
   },
   { timestamps: { createdAt: "created_at", updatedAt: false } },
 );

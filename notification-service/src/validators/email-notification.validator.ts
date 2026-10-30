@@ -12,7 +12,7 @@ export const actionSchema = z.object({
 // Payload accepted by the send-email endpoint.
 export const notificationSchema = z.object({
   type: z.enum(notificationTypes),
-  user_id: z.string().trim().min(1).max(255),
+  user_id: z.string().trim().regex(/^[a-f\d]{24}$/i, "user_id must be a valid ObjectId"),
   to: z.email(),
   recipientName: z.string().trim().min(1).max(120).optional(),
   subject: z.string().trim().min(1).max(200),

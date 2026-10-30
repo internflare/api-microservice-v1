@@ -8,7 +8,7 @@ function mapDocumentToTalentProfile(document: any): TalentProfile {
   const dateToIso = (value: unknown) => new Date(value as string | number | Date).toISOString();
   return {
     id: String(row.id ?? row._id),
-    user_id: row.user_id,
+    user_id: String(row.user_id),
     full_name: row.full_name ?? null,
     phone: row.phone ?? null,
     country: row.country ?? null,

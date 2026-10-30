@@ -132,7 +132,7 @@ const opportunitySchema = new Schema(
     views_count: { type: Number, default: 0 },
     last_synced_at: { type: Date, default: null },
     expires_at: { type: Date, default: null },
-    created_by: { type: String, default: null },
+    created_by: { type: Schema.Types.ObjectId, ref: "user", default: null },
     created_at: { type: Date, default: Date.now },
     updated_at: { type: Date, default: null },
   },
@@ -148,11 +148,12 @@ const OpportunityModel = model("Opportunity", opportunitySchema);
 function toOpportunityRecord(
   value: Record<string, unknown>,
 ): OpportunityRecord {
-  const { _id, company_id, ...record } = value;
+  const { _id, company_id, created_by, ...record } = value;
   return {
     ...record,
     id: String(_id),
     company_id: company_id == null ? null : String(company_id),
+    created_by: created_by == null ? null : String(created_by),
   } as unknown as OpportunityRecord;
 }
 

@@ -350,6 +350,58 @@ export const openApiDocument = {
         },
       },
     },
+    "/opportunities/drafts": {
+      get: {
+        tags: ["Drafts"],
+        summary: "List a company's drafts (stored in Redis)",
+        security: [{ sessionCookie: [] }],
+        parameters: [{ name: "company_id", in: "query", required: true, schema: objectIdSchema }],
+        responses: {
+          "200": { description: "Drafts, newest first" },
+          "400": { description: "Invalid company_id" },
+          "401": { description: "Authentication is required" },
+          "403": { description: "Active company administrator access required" },
+          "503": { description: "Draft storage unavailable" },
+        },
+      },
+      post: {
+        tags: ["Drafts"],
+        summary: "Save a new draft",
+        description:
+          "Drafts live only in Redis (30-day expiry, refreshed on every save) and never touch MongoDB. Accepts the listing fields without status. Publish by POSTing /opportunities with draft_id.",
+        security: [{ sessionCookie: [] }],
+        requestBody: { required: true, content: { "application/json": { schema: { type: "object" } } } },
+        responses: {
+          "201": { description: "Draft saved" },
+          "400": { description: "Invalid draft payload" },
+          "401": { description: "Authentication is required" },
+          "403": { description: "Active company administrator access required" },
+          "503": { description: "Draft storage unavailable" },
+        },
+      },
+    },
+    "/opportunities/drafts/{id}": {
+      parameters: [{ name: "id", in: "path", required: true, schema: objectIdSchema }],
+      get: {
+        tags: ["Drafts"],
+        summary: "Get a draft",
+        security: [{ sessionCookie: [] }],
+        responses: { "200": { description: "Draft" }, "403": { description: "Not a company admin" }, "404": { description: "Draft not found or expired" } },
+      },
+      put: {
+        tags: ["Drafts"],
+        summary: "Replace a draft",
+        security: [{ sessionCookie: [] }],
+        requestBody: { required: true, content: { "application/json": { schema: { type: "object" } } } },
+        responses: { "200": { description: "Draft updated" }, "400": { description: "Invalid payload" }, "403": { description: "Not a company admin" }, "404": { description: "Draft not found or expired" } },
+      },
+      delete: {
+        tags: ["Drafts"],
+        summary: "Delete a draft",
+        security: [{ sessionCookie: [] }],
+        responses: { "204": { description: "Deleted" }, "403": { description: "Not a company admin" }, "404": { description: "Draft not found or expired" } },
+      },
+    },
     "/opportunities/{id}/eligibility": {
       parameters: [{ name: "id", in: "path", required: true, schema: objectIdSchema }],
       get: {

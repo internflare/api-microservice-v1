@@ -50,7 +50,7 @@ export const openApiDocument = {
               schema: { $ref: "#/components/schemas/EmailNotificationRequest" },
               example: {
                 type: "application",
-                user_id: "user_123",
+                user_id: "665f1c2e8b3a4d0012ab34cd",
                 to: "candidate@example.com",
                 recipientName: "Jordan",
                 subject: "We received your application",
@@ -278,8 +278,8 @@ export const openApiDocument = {
           type: { $ref: "#/components/schemas/NotificationType" },
           user_id: {
             type: "string",
-            minLength: 1,
-            description: "Better Auth user ID associated with the notification.",
+            pattern: "^[a-fA-F0-9]{24}$",
+            description: "Better Auth user ID (MongoDB ObjectId, stored as ObjectId).",
           },
           to: { type: "string", format: "email" },
           recipientName: { type: "string", minLength: 1, maxLength: 120 },

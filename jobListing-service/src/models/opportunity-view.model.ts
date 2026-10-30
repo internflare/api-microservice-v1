@@ -14,10 +14,12 @@ async function findBestAttempt(
   userId: string,
   roleId: string,
 ): Promise<AssessmentAttemptSummary | null> {
+  // Ids from the session are ObjectId strings; a malformed id can never have attempts.
+  if (!Types.ObjectId.isValid(userId)) return null;
   const attempts = await mongoose.connection
     .collection("assessment_attempts")
     .find(
-      { user_id: userId, role_id: roleId, status: { $in: COMPLETED_STATUSES } },
+      { user_id: new Types.ObjectId(userId), role_id: roleId, status: { $in: COMPLETED_STATUSES } },
       { projection: { placement: 1, overall_score: 1 } },
     )
     .toArray();
@@ -45,11 +47,12 @@ async function recordUniqueView(
   opportunityId: string,
   userId: string,
 ): Promise<boolean> {
+  if (!Types.ObjectId.isValid(userId)) return false;
   const opportunityObjectId = new Types.ObjectId(opportunityId);
   const result = await mongoose.connection
     .collection("opportunity_views")
     .updateOne(
-      { opportunity_id: opportunityObjectId, user_id: userId },
+      { opportunity_id: opportunityObjectId, user_id: new Types.ObjectId(userId) },
       { $setOnInsert: { created_at: new Date() } },
       { upsert: true },
     );

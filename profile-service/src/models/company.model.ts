@@ -6,6 +6,7 @@ import {
   CompanyMemberDocument,
   CompanyVerificationDocument,
   OpportunityDocument,
+  stringifyObjectIds,
 } from "./company.schema.js";
 import type {
   Company,
@@ -26,7 +27,7 @@ function serialize<T>(value: any): T {
   result.id = String(result.id ?? result._id);
   delete result._id;
   delete result.__v;
-  if (result.company_id != null) result.company_id = String(result.company_id);
+  stringifyObjectIds(result);
   return result as T;
 }
 

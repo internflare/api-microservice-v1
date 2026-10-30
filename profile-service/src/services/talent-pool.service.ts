@@ -62,10 +62,10 @@ async function loadTalentPool(): Promise<TalentPool> {
   const profiles: any[] = await TalentProfileDocument.find({
     user_id: { $in: [...new Set(jobReady.map((attempt) => attempt.user_id))] },
   }).lean();
-  const profileByUser = new Map(profiles.map((profile) => [profile.user_id, profile]));
+  const profileByUser = new Map(profiles.map((profile) => [String(profile.user_id), profile]));
 
   const talent: PoolTalent[] = jobReady.flatMap((attempt) => {
-    const profile = profileByUser.get(attempt.user_id);
+    const profile = profileByUser.get(String(attempt.user_id));
     // Talent without a profile cannot be shown or contacted meaningfully.
     if (!profile) return [];
     return [

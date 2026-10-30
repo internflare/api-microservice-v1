@@ -2,7 +2,7 @@
 
 const talentProfileSchema = new Schema(
   {
-    user_id: { type: String, required: true, unique: true },
+    user_id: { type: Schema.Types.ObjectId, ref: "user", required: true, unique: true },
     full_name: { type: String, default: null },
     phone: { type: String, default: null },
     country: { type: String, default: null },

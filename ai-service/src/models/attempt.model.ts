@@ -1,5 +1,5 @@
 ﻿import { randomUUID } from "node:crypto";
-import { Schema, model } from "mongoose";
+import { Schema, Types, model } from "mongoose";
 import type { ExpertiseLevel } from "../data/roles.js";
 import type {
   AssessmentMetrics,
@@ -11,7 +11,7 @@ import type {
 
 interface AttemptDocument {
   id: string;
-  user_id: string;
+  user_id: Types.ObjectId;
   user_email: string;
   user_name: string | null;
   role_id: string;
@@ -37,7 +37,7 @@ interface AttemptDocument {
 const attemptSchema = new Schema<AttemptDocument>(
   {
     id: { type: String, default: () => randomUUID(), unique: true },
-    user_id: { type: String, required: true, index: true },
+    user_id: { type: Schema.Types.ObjectId, ref: "user", required: true, index: true },
     user_email: { type: String, required: true },
     user_name: { type: String, default: null },
     role_id: { type: String, required: true },
@@ -67,7 +67,7 @@ const AttemptModel = model<AttemptDocument>("AssessmentAttempt", attemptSchema);
 
 const toAttempt = (row: AttemptDocument): AttemptRecord => ({
   id: row.id,
-  userId: row.user_id,
+  userId: String(row.user_id),
   userEmail: row.user_email,
   userName: row.user_name,
   roleId: row.role_id,

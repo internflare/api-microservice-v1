@@ -1,5 +1,12 @@
 import { Router } from "express";
 import {
+  createDraftHandler,
+  deleteDraftHandler,
+  getDraftHandler,
+  listDraftsHandler,
+  updateDraftHandler,
+} from "../controllers/draft.controller.js";
+import {
   createOpportunityHandler,
   deleteOpportunityHandler,
   getEligibilityHandler,
@@ -16,6 +23,15 @@ import {
 } from "../middleware/cache.js";
 
 export const opportunityRoutes = Router();
+
+// Drafts live in Redis only. Registered before "/:id" so "drafts" is not read as an id.
+opportunityRoutes.get("/drafts", requireAuth, listDraftsHandler);
+opportunityRoutes.post("/drafts", requireAuth, createDraftHandler);
+opportunityRoutes
+  .route("/drafts/:id")
+  .get(requireAuth, getDraftHandler)
+  .put(requireAuth, updateDraftHandler)
+  .delete(requireAuth, deleteDraftHandler);
 
 // GET / serves public search, and the admin company listing when a company_id is supplied.
 opportunityRoutes

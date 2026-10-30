@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import mongoose, { Schema } from "mongoose";
+import mongoose, { Schema, Types } from "mongoose";
 import { notificationTypes, type NotificationType } from "../services/email-notification.service.js";
 
 export type NotificationChannel = "email" | "in_app";
@@ -27,14 +27,15 @@ export interface NewNotification {
   dedupe_key?: "welcome";
 }
 
-interface NotificationDocument extends NotificationRecord {
+interface NotificationDocument extends Omit<NotificationRecord, "user_id"> {
+  user_id: Types.ObjectId;
   dedupe_key?: "welcome";
 }
 
 const notificationSchema = new Schema<NotificationDocument>(
   {
     id: { type: String, required: true, unique: true },
-    user_id: { type: String, required: true },
+    user_id: { type: Schema.Types.ObjectId, ref: "user", required: true },
     type: {
       type: String,
       required: true,
@@ -80,7 +81,7 @@ function toNotificationRecord(
 ): NotificationRecord {
   return {
     id: notification.id,
-    user_id: notification.user_id,
+    user_id: String(notification.user_id),
     type: notification.type,
     title: notification.title,
     body: notification.body,

@@ -428,6 +428,30 @@ export const openApiDocument = {
         responses: { "200": { description: "Opportunity deleted" } },
       },
     },
+    "/api/v1/job/listing/drafts": {
+      get: {
+        tags: ["Opportunities"],
+        summary: "List a company's drafts (Redis-only)",
+        security: [{ sessionCookie: [] }],
+        parameters: [{ name: "company_id", in: "query", required: true, schema: { type: "string", pattern: "^[a-fA-F0-9]{24}$" } }],
+        responses: { "200": { description: "Drafts, newest first" }, "401": { description: "Not signed in" }, "403": { description: "Not a company admin" } },
+      },
+      post: {
+        tags: ["Opportunities"],
+        summary: "Save a new draft (stored in Redis, not the database)",
+        description: "Same fields as a listing without status. Publish by creating a listing with draft_id.",
+        security: [{ sessionCookie: [] }],
+        responses: { "201": { description: "Draft saved" }, "400": { description: "Invalid payload" }, "403": { description: "Not a company admin" }, "503": { description: "Draft storage unavailable" } },
+      },
+    },
+    "/api/v1/job/listing/drafts/{id}": {
+      parameters: [
+        { name: "id", in: "path", required: true, schema: { type: "string", pattern: "^[a-fA-F0-9]{24}$", description: "Draft id" } },
+      ],
+      get: { tags: ["Opportunities"], summary: "Get a draft", security: [{ sessionCookie: [] }], responses: { "200": { description: "Draft" }, "404": { description: "Draft not found or expired" } } },
+      put: { tags: ["Opportunities"], summary: "Replace a draft", security: [{ sessionCookie: [] }], responses: { "200": { description: "Draft updated" }, "404": { description: "Draft not found or expired" } } },
+      delete: { tags: ["Opportunities"], summary: "Delete a draft", security: [{ sessionCookie: [] }], responses: { "204": { description: "Deleted" }, "404": { description: "Draft not found or expired" } } },
+    },
     "/api/v1/job/listing/{id}/eligibility": {
       get: {
         tags: ["Opportunities"],
