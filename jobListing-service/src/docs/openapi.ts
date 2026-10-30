@@ -68,6 +68,7 @@ export const openApiDocument = {
     { name: "Health", description: "Service and dependency health" },
     { name: "Opportunities", description: "Opportunity listings" },
     { name: "Applications", description: "Application notification handoff" },
+    { name: "Interviews", description: "Interview scheduling between employers and applicants" },
     { name: "Saved opportunities", description: "A talent's bookmarked listings" },
   ],
   paths: {
@@ -445,36 +446,255 @@ export const openApiDocument = {
       },
     },
     "/opportunities/{id}/applications": {
-      parameters: [
-        {
-          name: "id",
-          in: "path",
-          required: true,
-          schema: objectIdSchema,
-        },
-      ],
+      parameters: [{ name: "id", in: "path", required: true, schema: objectIdSchema }],
       post: {
         tags: ["Applications"],
         summary: "Apply to a listing",
         description:
-          "Requires a session. The applicant identity comes from the session (no request body). Rejected with 403 unless the talent passed the assessment for the listing's role. Queues an email to the listing creator; applications are not persisted by this service.",
+          "Requires a session. The applicant is the session user and the CV is taken from their talent profile. Rejected with 403 unless the talent passed the assessment for the listing's role, 400 for external-apply listings, and 409 if they already applied. Stores an application (stage New, with a computed AI match) and emails the listing creator on a best-effort basis.",
         security: [{ sessionCookie: [] }],
-        responses: {
-          "202": {
-            description: "Application accepted and notification queued",
-            content: {
-              "application/json": {
-                schema: { type: "object", properties: { status: { type: "string", example: "application_notification_queued" } } },
+        requestBody: {
+          required: false,
+          content: {
+            "application/json": {
+              schema: {
+                type: "object",
+                additionalProperties: false,
+                properties: { cover_letter: { type: "string", maxLength: 3000 } },
               },
             },
           },
-          "400": { description: "Invalid opportunity id or account has no email" },
+        },
+        responses: {
+          "201": {
+            description: "Application created",
+            content: { "application/json": { schema: { type: "object", properties: { application: { $ref: "#/components/schemas/Application" } } } } },
+          },
+          "400": { description: "Invalid input, external-apply listing, or account has no email" },
           "401": { description: "Authentication is required" },
           "403": {
             description: "Not eligible; the body includes the eligibility state",
             content: { "application/json": { schema: { $ref: "#/components/schemas/EligibilityResponse" } } },
           },
           "404": { description: "Opportunity not found or not published" },
+          "409": { description: "You have already applied to this listing" },
+        },
+      },
+    },
+    "/opportunities/applications/mine": {
+      get: {
+        tags: ["Applications"],
+        summary: "List the signed-in talent's applications",
+        description: "Newest first (max 200), each joined with its listing and company name.",
+        security: [{ sessionCookie: [] }],
+        responses: {
+          "200": {
+            description: "Applications",
+            content: { "application/json": { schema: { type: "object", properties: { data: { type: "array", items: { $ref: "#/components/schemas/Application" } } } } } },
+          },
+          "401": { description: "Authentication is required" },
+        },
+      },
+    },
+    "/opportunities/applications/mine/ids": {
+      get: {
+        tags: ["Applications"],
+        summary: "List the opportunity ids the signed-in talent applied to",
+        security: [{ sessionCookie: [] }],
+        responses: {
+          "200": {
+            description: "Opportunity ids",
+            content: { "application/json": { schema: { type: "object", properties: { opportunity_ids: { type: "array", items: objectIdSchema } } } } },
+          },
+          "401": { description: "Authentication is required" },
+        },
+      },
+    },
+    "/opportunities/applications": {
+      get: {
+        tags: ["Applications"],
+        summary: "List a company's applications (employer pipeline)",
+        description: "Requires active administrator access to the company. Returns at most 500 applications with applicant profile summaries.",
+        security: [{ sessionCookie: [] }],
+        parameters: [
+          { name: "company_id", in: "query", required: true, schema: objectIdSchema },
+          { name: "opportunity_id", in: "query", required: false, schema: objectIdSchema },
+          { name: "stage", in: "query", required: false, schema: { $ref: "#/components/schemas/ApplicationStage" } },
+        ],
+        responses: {
+          "200": {
+            description: "Applications",
+            content: { "application/json": { schema: { type: "object", properties: { data: { type: "array", items: { $ref: "#/components/schemas/Application" } } } } } },
+          },
+          "400": { description: "Invalid query" },
+          "401": { description: "Authentication is required" },
+          "403": { description: "Not an active administrator of this company" },
+        },
+      },
+    },
+    "/opportunities/applications/{applicationId}": {
+      parameters: [{ name: "applicationId", in: "path", required: true, schema: objectIdSchema }],
+      get: {
+        tags: ["Applications"],
+        summary: "Get one application (employer)",
+        security: [{ sessionCookie: [] }],
+        responses: {
+          "200": {
+            description: "Application with applicant details",
+            content: { "application/json": { schema: { type: "object", properties: { application: { $ref: "#/components/schemas/Application" } } } } },
+          },
+          "401": { description: "Authentication is required" },
+          "403": { description: "Not an active administrator of the listing's company" },
+          "404": { description: "Application not found" },
+        },
+      },
+      patch: {
+        tags: ["Applications"],
+        summary: "Move an application to another stage and/or save employer notes",
+        description: "Stage changes must follow the allowed transitions (for example New to Reviewed, Shortlisted or Rejected). Withdrawn is reserved for the talent.",
+        security: [{ sessionCookie: [] }],
+        requestBody: {
+          required: true,
+          content: {
+            "application/json": {
+              schema: {
+                type: "object",
+                additionalProperties: false,
+                properties: {
+                  current_stage: { $ref: "#/components/schemas/ApplicationStage" },
+                  employer_notes: { type: "string", maxLength: 5000 },
+                },
+              },
+            },
+          },
+        },
+        responses: {
+          "200": {
+            description: "Updated application",
+            content: { "application/json": { schema: { type: "object", properties: { application: { $ref: "#/components/schemas/Application" } } } } },
+          },
+          "400": { description: "Invalid input" },
+          "401": { description: "Authentication is required" },
+          "403": { description: "Not an active administrator of the listing's company" },
+          "404": { description: "Application not found" },
+          "409": { description: "Stage transition not allowed" },
+        },
+      },
+    },
+    "/opportunities/applications/{applicationId}/withdraw": {
+      parameters: [{ name: "applicationId", in: "path", required: true, schema: objectIdSchema }],
+      post: {
+        tags: ["Applications"],
+        summary: "Withdraw your own application",
+        security: [{ sessionCookie: [] }],
+        responses: {
+          "200": {
+            description: "Withdrawn application",
+            content: { "application/json": { schema: { type: "object", properties: { application: { $ref: "#/components/schemas/Application" } } } } },
+          },
+          "401": { description: "Authentication is required" },
+          "404": { description: "Application not found (or not yours)" },
+          "409": { description: "The application is already closed" },
+        },
+      },
+    },
+    "/opportunities/applications/{applicationId}/interviews": {
+      parameters: [{ name: "applicationId", in: "path", required: true, schema: objectIdSchema }],
+      get: {
+        tags: ["Interviews"],
+        summary: "List an application's interviews (the applicant or a company admin)",
+        security: [{ sessionCookie: [] }],
+        responses: {
+          "200": { description: "Interviews, newest first", content: { "application/json": { schema: { type: "object", properties: { data: { type: "array", items: { $ref: "#/components/schemas/Interview" } } } } } } },
+          "401": { description: "Authentication is required" },
+          "403": { description: "Not the applicant or a company admin" },
+          "404": { description: "Application not found" },
+        },
+      },
+      post: {
+        tags: ["Interviews"],
+        summary: "Invite the applicant to interview (company admin)",
+        description: "Moves the application to the Interview stage and emails the applicant. Allowed from Reviewed, Shortlisted, Interview and Test Task, and only while no other interview is open.",
+        security: [{ sessionCookie: [] }],
+        requestBody: { required: true, content: { "application/json": { schema: { $ref: "#/components/schemas/InterviewInput" } } } },
+        responses: {
+          "201": { description: "Interview created", content: { "application/json": { schema: { type: "object", properties: { interview: { $ref: "#/components/schemas/Interview" } } } } } },
+          "400": { description: "Invalid input, or a time in the past" },
+          "401": { description: "Authentication is required" },
+          "403": { description: "Not a company admin" },
+          "404": { description: "Application not found" },
+          "409": { description: "Wrong stage, or an interview is already open" },
+        },
+      },
+    },
+    "/opportunities/interviews/mine": {
+      get: {
+        tags: ["Interviews"],
+        summary: "The signed-in talent's interviews with listing and company details",
+        security: [{ sessionCookie: [] }],
+        responses: {
+          "200": { description: "Interviews including listing_title, company_name and company_logo_url" },
+          "401": { description: "Authentication is required" },
+        },
+      },
+    },
+    "/opportunities/interviews": {
+      get: {
+        tags: ["Interviews"],
+        summary: "All interviews across a company's applicants (company admin)",
+        security: [{ sessionCookie: [] }],
+        parameters: [{ name: "company_id", in: "query", required: true, schema: objectIdSchema }],
+        responses: {
+          "200": { description: "Interviews including listing_title, applicant_id and applicant_name" },
+          "401": { description: "Authentication is required" },
+          "403": { description: "Not a company admin" },
+        },
+      },
+    },
+    "/opportunities/interviews/{interviewId}/respond": {
+      parameters: [{ name: "interviewId", in: "path", required: true, schema: objectIdSchema }],
+      post: {
+        tags: ["Interviews"],
+        summary: "Applicant confirms, declines or asks to reschedule",
+        description: "Declining or asking to reschedule requires a reason. The hiring team is emailed.",
+        security: [{ sessionCookie: [] }],
+        requestBody: {
+          required: true,
+          content: {
+            "application/json": {
+              schema: {
+                type: "object",
+                required: ["response"],
+                properties: {
+                  response: { type: "string", enum: ["confirm", "decline", "reschedule"] },
+                  reason: { type: "string", maxLength: 1000 },
+                },
+              },
+            },
+          },
+        },
+        responses: {
+          "200": { description: "Updated interview", content: { "application/json": { schema: { type: "object", properties: { interview: { $ref: "#/components/schemas/Interview" } } } } } },
+          "400": { description: "Invalid response or missing reason" },
+          "404": { description: "Interview not found (or not yours)" },
+          "409": { description: "The interview can no longer be changed" },
+        },
+      },
+    },
+    "/opportunities/interviews/{interviewId}": {
+      parameters: [{ name: "interviewId", in: "path", required: true, schema: objectIdSchema }],
+      patch: {
+        tags: ["Interviews"],
+        summary: "Reschedule, cancel or complete an interview (company admin)",
+        description: "Sending scheduled_at, format, meeting_url or message reschedules and asks the applicant to confirm again. status=cancelled cancels; status=completed requires an outcome and accepts feedback.",
+        security: [{ sessionCookie: [] }],
+        requestBody: { required: true, content: { "application/json": { schema: { $ref: "#/components/schemas/InterviewUpdate" } } } },
+        responses: {
+          "200": { description: "Updated interview", content: { "application/json": { schema: { type: "object", properties: { interview: { $ref: "#/components/schemas/Interview" } } } } } },
+          "400": { description: "Invalid input" },
+          "403": { description: "Not a company admin" },
+          "404": { description: "Interview not found" },
+          "409": { description: "The interview is already closed" },
         },
       },
     },
@@ -489,9 +709,79 @@ export const openApiDocument = {
       },
     },
     schemas: {
+      ApplicationStage: {
+        type: "string",
+        enum: ["New", "Reviewed", "Shortlisted", "Interview", "Test Task", "Offer", "Hired", "Rejected", "Withdrawn"],
+      },
+      Application: {
+        type: "object",
+        properties: {
+          id: objectIdSchema,
+          opportunity_id: objectIdSchema,
+          talent_id: objectIdSchema,
+          cover_letter: { type: ["string", "null"] },
+          cv_url: { type: ["string", "null"] },
+          current_stage: { $ref: "#/components/schemas/ApplicationStage" },
+          ai_match_score: { type: ["integer", "null"], minimum: 0, maximum: 100 },
+          ai_match_factors: {
+            type: ["array", "null"],
+            items: {
+              type: "object",
+              properties: { label: { type: "string" }, score: { type: "number" }, note: { type: "string" } },
+            },
+          },
+          employer_notes: { type: ["string", "null"] },
+          applied_at: { type: "string", format: "date-time" },
+          updated_at: { type: ["string", "null"], format: "date-time" },
+          opportunity: { type: ["object", "null"], description: "Talent view only: listing title, type, company id, name and company_logo_url" },
+          listing_title: { type: ["string", "null"], description: "Employer view only" },
+          applicant: { type: "object", description: "Employer view only: name, email, phone, career_goals, headline, location, skills, education, experience, availability, avatar_url" },
+        },
+      },
+      InterviewInput: {
+        type: "object",
+        required: ["scheduled_at", "format"],
+        properties: {
+          scheduled_at: { type: "string", format: "date-time", description: "Must be in the future" },
+          format: { type: "string", enum: ["video", "phone", "onsite"] },
+          meeting_url: { type: ["string", "null"], format: "uri" },
+          message: { type: ["string", "null"], maxLength: 2000 },
+        },
+      },
+      InterviewUpdate: {
+        type: "object",
+        properties: {
+          scheduled_at: { type: "string", format: "date-time" },
+          format: { type: "string", enum: ["video", "phone", "onsite"] },
+          meeting_url: { type: ["string", "null"], format: "uri" },
+          message: { type: ["string", "null"] },
+          status: { type: "string", enum: ["cancelled", "completed"] },
+          outcome: { type: "string", enum: ["passed", "failed", "no_show"] },
+          feedback: { type: ["string", "null"], maxLength: 5000 },
+        },
+      },
+      Interview: {
+        type: "object",
+        properties: {
+          id: objectIdSchema,
+          application_id: objectIdSchema,
+          requested_by: objectIdSchema,
+          scheduled_at: { type: "string", format: "date-time" },
+          format: { type: "string", enum: ["video", "phone", "onsite"] },
+          meeting_url: { type: ["string", "null"] },
+          message: { type: ["string", "null"] },
+          status: { type: "string", enum: ["pending", "confirmed", "reschedule_requested", "declined", "completed", "cancelled"] },
+          reschedule_reason: { type: ["string", "null"] },
+          outcome: { type: ["string", "null"], enum: ["passed", "failed", "no_show", null] },
+          feedback: { type: ["string", "null"] },
+          created_at: { type: "string", format: "date-time" },
+          updated_at: { type: ["string", "null"], format: "date-time" },
+        },
+      },
       EligibilityResponse: {
         type: "object",
         properties: {
+          applied: { type: "boolean", description: "True when the signed-in talent already applied" },
           state: { type: "string", enum: ["eligible", "not-assessed", "not-eligible", "unconfigured", "closed"] },
           role_id: { type: ["string", "null"] },
           required_placement: { type: "string", enum: ["internship", "job"] },

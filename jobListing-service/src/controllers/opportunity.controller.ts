@@ -8,14 +8,13 @@ import {
   updateOpportunity,
   type OpportunityRecord,
 } from "../models/opportunity.model.js";
-import { checkAdmin, findUserContact } from "../utils/helperFunc.js";
+import { checkAdmin } from "../utils/helperFunc.js";
+import { hasApplied } from "../models/application.model.js";
+import { attachCompanyLogos } from "../services/company-logo.service.js";
 import { checkEligibility } from "../services/eligibility.service.js";
 import { recordUniqueView } from "../models/opportunity-view.model.js";
 import { OpportunityQuery } from "../models/opportunity-query.js";
-import {
-  publishJobApplication,
-  publishJobCreated,
-} from "../services/notification-publisher.service.js";
+import { publishJobCreated } from "../services/notification-publisher.service.js";
 import {
   companyListIndexKey,
   invalidateCompany,
@@ -367,7 +366,10 @@ const listPublicOpportunitiesHandler: RequestHandler = async (
         );
       }
     }
-    response.json(body);
+    response.json({
+      ...body,
+      data: await attachCompanyLogos((body.data ?? []) as OpportunityRecord[]),
+    });
   } catch (error) {
     forwardError(
       error,
@@ -418,7 +420,8 @@ const getOpportunityHandler: RequestHandler = async (
     if (!cached && response.locals.cacheKey) {
       await setCached(response.locals.cacheKey, { opportunity });
     }
-    response.json({ opportunity });
+    const [withLogo] = await attachCompanyLogos([opportunity]);
+    response.json({ opportunity: withLogo });
   } catch (error) {
     forwardError(
       error,
@@ -434,7 +437,10 @@ const getEligibilityHandler: RequestHandler = async (request, response, next) =>
   try {
     const userId = requireUserId(request);
     const opportunity = await loadPublishedOpportunity(request.params.id);
-    response.json(await checkEligibility(opportunity, userId));
+    response.json({
+      ...(await checkEligibility(opportunity, userId)),
+      applied: await hasApplied(userId, opportunity.id),
+    });
   } catch (error) {
     forwardError(
       error,
@@ -478,53 +484,6 @@ const recordViewHandler: RequestHandler = async (request, response, next) => {
   }
 };
 
-// POST /:id/applications: eligible talents apply; the applicant identity comes from the session, never the body.
-const notifyCompanyOfApplicationHandler: RequestHandler = async (
-  request,
-  response,
-  next,
-) => {
-  try {
-    const userId = requireUserId(request);
-    const applicantEmail = request.user?.email;
-    if (!applicantEmail) {
-      throw new AppError("Your account has no email address", 400);
-    }
-    const opportunity = await loadPublishedOpportunity(request.params.id);
-
-    const eligibility = await checkEligibility(opportunity, userId);
-    if (eligibility.state !== "eligible") {
-      response.status(403).json({
-        error: "You are not eligible to apply for this listing",
-        eligibility,
-      });
-      return;
-    }
-
-    // Notify the listing creator; failing to queue the email must not hide a valid application.
-    const contact = opportunity.created_by
-      ? await findUserContact(opportunity.created_by)
-      : null;
-    if (contact) {
-      await publishJobApplication(
-        opportunity,
-        { name: request.user?.name ?? applicantEmail, email: applicantEmail },
-        contact,
-      );
-    } else {
-      logger("warn", `No contact found to notify for opportunity ${opportunity.id}`);
-    }
-    response.status(202).json({ status: "application_notification_queued" });
-  } catch (error) {
-    forwardError(
-      error,
-      next,
-      "Failed to submit application:",
-      "Could not submit application",
-    );
-  }
-};
-
 export {
   listOpportunityByCompany,
   createOpportunityHandler,
@@ -532,7 +491,6 @@ export {
   getOpportunityHandler,
   updateOpportunityHandler,
   deleteOpportunityHandler,
-  notifyCompanyOfApplicationHandler,
   getEligibilityHandler,
   recordViewHandler,
 };

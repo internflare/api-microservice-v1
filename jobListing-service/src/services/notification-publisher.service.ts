@@ -32,13 +32,43 @@ export interface JobApplicationSubmittedEvent {
   eventType: "job.application_submitted";
   occurredAt: string;
   application: {
+    id?: string;
     opportunityId: string;
     opportunityTitle: string;
     applicantName: string;
     applicantEmail: string;
+    coverLetterExcerpt?: string;
   };
   recipient: NotificationRecipient;
 }
+
+export interface InterviewNoticeEvent {
+  eventId: string;
+  eventType: "job.interview_notice";
+  occurredAt: string;
+  notice: {
+    kind: InterviewNoticeKind;
+    interviewId: string;
+    applicationId: string;
+    opportunityTitle: string;
+    companyName: string;
+    otherPartyName: string;
+    scheduledAt: string;
+    format: string;
+    meetingUrl?: string;
+    message?: string;
+    audience: "talent" | "employer";
+  };
+  recipient: NotificationRecipient;
+}
+
+export type InterviewNoticeKind =
+  | "requested"
+  | "rescheduled"
+  | "cancelled"
+  | "confirmed"
+  | "declined"
+  | "reschedule_requested";
 
 let connection: ChannelModel | undefined;
 let channelPromise: Promise<ConfirmChannel> | undefined;
@@ -99,7 +129,7 @@ async function connectNotificationPublisher(): Promise<void> {
 
 // Send an event to the durable queue and wait for the broker to confirm it was stored.
 async function publish(
-  event: JobPublishedEvent | JobApplicationSubmittedEvent,
+  event: JobPublishedEvent | JobApplicationSubmittedEvent | InterviewNoticeEvent,
 ) {
   const channel = await getPublisherChannel();
   channel.sendToQueue(
@@ -144,20 +174,37 @@ async function publishJobApplication(
   opportunity: OpportunityRecord,
   applicant: { name: string; email: string },
   recipient: NotificationRecipient,
+  details: { applicationId?: string; coverLetter?: string | null } = {},
 ): Promise<void> {
   const event: JobApplicationSubmittedEvent = {
     eventId: randomUUID(),
     eventType: "job.application_submitted",
     occurredAt: new Date().toISOString(),
     application: {
+      id: details.applicationId,
       opportunityId: opportunity.id,
       opportunityTitle: opportunity.title,
       applicantName: applicant.name,
       applicantEmail: applicant.email,
+      coverLetterExcerpt: details.coverLetter?.trim().slice(0, 400) || undefined,
     },
     recipient,
   };
   await publish(event);
+}
+
+// Tell the talent (or the hiring team) about an interview change
+async function publishInterviewNotice(
+  notice: InterviewNoticeEvent["notice"],
+  recipient: NotificationRecipient,
+): Promise<void> {
+  await publish({
+    eventId: randomUUID(),
+    eventType: "job.interview_notice",
+    occurredAt: new Date().toISOString(),
+    notice,
+    recipient,
+  });
 }
 
 // Close the publisher channel and connection when the service is shutting down
@@ -180,4 +227,5 @@ export {
   publishJobCreated,
   closeNotificationPublisher,
   publishJobApplication,
+  publishInterviewNotice,
 };

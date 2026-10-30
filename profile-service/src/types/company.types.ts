@@ -28,6 +28,10 @@ export interface Company {
   country?: string | null;
   industry?: string | null;
   registration_number?: string | null;
+  contact_email?: string | null;
+  phone?: string | null;
+  representative_name?: string | null;
+  representative_title?: string | null;
   logo_url?: string | null;
   description?: string | null;
   culture?: string | null;

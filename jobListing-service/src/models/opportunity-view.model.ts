@@ -19,7 +19,7 @@ async function findBestAttempt(
   const attempts = await mongoose.connection
     .collection("assessment_attempts")
     .find(
-      { user_id: new Types.ObjectId(userId), role_id: roleId, status: { $in: COMPLETED_STATUSES } },
+      { user_id: { $in: [new Types.ObjectId(userId), userId] }, role_id: roleId, status: { $in: COMPLETED_STATUSES } },
       { projection: { placement: 1, overall_score: 1 } },
     )
     .toArray();

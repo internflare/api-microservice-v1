@@ -15,7 +15,7 @@ async function checkAdmin(
     .findOne(
       {
         company_id: companyObjectId,
-        user_id: new Types.ObjectId(userId),
+        user_id: { $in: [new Types.ObjectId(userId), userId] },
         workspace_role: "ADMIN",
         status: "ACTIVE",
       },
@@ -51,4 +51,31 @@ async function findUserContact(
   return user?.email ? { email: user.email, name: user.name } : null;
 }
 
-export { checkAdmin, findUserContact };
+// Emails of everyone who should hear about a company's applications: its active admins plus
+// the listing creator, de-duplicated by address.
+async function findHiringContacts(
+  companyId: string | null,
+  creatorId: string | null,
+): Promise<Array<{ email: string; name?: string }>> {
+  const userIds = new Set<string>();
+  if (creatorId) userIds.add(String(creatorId));
+  if (companyId && Types.ObjectId.isValid(companyId)) {
+    const admins = await mongoose.connection
+      .collection("companymembers")
+      .find(
+        { company_id: new Types.ObjectId(companyId), workspace_role: "ADMIN", status: "ACTIVE" },
+        { projection: { user_id: 1 } },
+      )
+      .toArray();
+    admins.forEach((admin) => userIds.add(String(admin.user_id)));
+  }
+
+  const contacts = await Promise.all([...userIds].map((id) => findUserContact(id)));
+  const unique = new Map<string, { email: string; name?: string }>();
+  contacts.forEach((contact) => {
+    if (contact) unique.set(contact.email.toLowerCase(), contact);
+  });
+  return [...unique.values()];
+}
+
+export { checkAdmin, findUserContact, findHiringContacts };

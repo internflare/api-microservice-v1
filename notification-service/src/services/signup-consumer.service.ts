@@ -76,10 +76,39 @@ const jobApplicationEventSchema = z.object({
   eventType: z.literal("job.application_submitted"),
   occurredAt: z.iso.datetime(),
   application: z.object({
+    id: z.string().min(1).optional(),
     opportunityId: z.string().min(1),
     opportunityTitle: z.string().min(1),
     applicantName: z.string().min(1),
     applicantEmail: z.email(),
+    coverLetterExcerpt: z.string().optional(),
+  }),
+  recipient: recipientSchema,
+});
+
+const interviewNoticeEventSchema = z.object({
+  eventId: z.uuid(),
+  eventType: z.literal("job.interview_notice"),
+  occurredAt: z.iso.datetime(),
+  notice: z.object({
+    kind: z.enum([
+      "requested",
+      "rescheduled",
+      "cancelled",
+      "confirmed",
+      "declined",
+      "reschedule_requested",
+    ]),
+    interviewId: z.string().min(1),
+    applicationId: z.string().min(1),
+    opportunityTitle: z.string().min(1),
+    companyName: z.string().min(1),
+    otherPartyName: z.string().min(1),
+    scheduledAt: z.iso.datetime(),
+    format: z.string().min(1),
+    meetingUrl: z.string().optional(),
+    message: z.string().optional(),
+    audience: z.enum(["talent", "employer"]),
   }),
   recipient: recipientSchema,
 });
@@ -292,18 +321,86 @@ async function deliverJobPublishedEvent(
 async function deliverJobApplicationEvent(
   event: z.infer<typeof jobApplicationEventSchema>,
 ): Promise<void> {
-  const link = new URL(
-    `/app/opportunities/${event.application.opportunityId}`,
-    config.frontendUrl,
-  ).toString();
+  const { application } = event;
+  const path = application.id
+    ? `/employer/candidates/${application.id}`
+    : `/employer/candidates`;
+  const link = new URL(path, config.frontendUrl).toString();
 
   await sendEmailNotification({
     type: "application",
     to: event.recipient.email,
     recipientName: event.recipient.name,
-    subject: `New application: ${event.application.opportunityTitle}`,
-    message: `${event.application.applicantName} (${event.application.applicantEmail}) applied for ${event.application.opportunityTitle}.`,
-    action: { label: "View opportunity", url: link },
+    subject: `New application: ${application.opportunityTitle}`,
+    message: [
+      `${application.applicantName} (${application.applicantEmail}) applied for ${application.opportunityTitle}.`,
+      application.coverLetterExcerpt ? `Cover letter:\n${application.coverLetterExcerpt}` : "",
+    ]
+      .filter(Boolean)
+      .join("\n\n"),
+    action: { label: "Review application", url: link },
+  });
+}
+
+const interviewSubjects = {
+  requested: (n: { opportunityTitle: string; companyName: string }) =>
+    `Interview invitation: ${n.opportunityTitle} at ${n.companyName}`,
+  rescheduled: (n: { opportunityTitle: string }) => `Interview updated: ${n.opportunityTitle}`,
+  cancelled: (n: { opportunityTitle: string }) => `Interview cancelled: ${n.opportunityTitle}`,
+  confirmed: (n: { otherPartyName: string }) => `${n.otherPartyName} confirmed the interview`,
+  declined: (n: { otherPartyName: string }) => `${n.otherPartyName} declined the interview`,
+  reschedule_requested: (n: { otherPartyName: string }) =>
+    `${n.otherPartyName} asked to reschedule the interview`,
+};
+
+const interviewIntro = {
+  requested: (n: { companyName: string; opportunityTitle: string }) =>
+    `${n.companyName} would like to interview you for ${n.opportunityTitle}.`,
+  rescheduled: (n: { companyName: string; opportunityTitle: string }) =>
+    `${n.companyName} changed your interview for ${n.opportunityTitle}. Please confirm the new details.`,
+  cancelled: (n: { companyName: string; opportunityTitle: string }) =>
+    `${n.companyName} cancelled your interview for ${n.opportunityTitle}.`,
+  confirmed: (n: { otherPartyName: string; opportunityTitle: string }) =>
+    `${n.otherPartyName} confirmed their interview for ${n.opportunityTitle}.`,
+  declined: (n: { otherPartyName: string; opportunityTitle: string }) =>
+    `${n.otherPartyName} declined their interview for ${n.opportunityTitle}.`,
+  reschedule_requested: (n: { otherPartyName: string; opportunityTitle: string }) =>
+    `${n.otherPartyName} asked for another time for their ${n.opportunityTitle} interview.`,
+};
+
+async function deliverInterviewNoticeEvent(
+  event: z.infer<typeof interviewNoticeEventSchema>,
+): Promise<void> {
+  const { notice } = event;
+  const path =
+    notice.audience === "talent"
+      ? "/app/interviews"
+      : `/employer/candidates/${notice.applicationId}`;
+  const when = new Date(notice.scheduledAt).toUTCString();
+  const details =
+    notice.kind === "cancelled"
+      ? ""
+      : [`When: ${when}`, `Format: ${notice.format}`, notice.meetingUrl ? `Link: ${notice.meetingUrl}` : ""]
+          .filter(Boolean)
+          .join("\n");
+  const noteLabel = notice.audience === "talent" ? "Note" : "Reason";
+
+  await sendEmailNotification({
+    type: "application",
+    to: event.recipient.email,
+    recipientName: event.recipient.name,
+    subject: interviewSubjects[notice.kind](notice),
+    message: [
+      interviewIntro[notice.kind](notice),
+      details,
+      notice.message ? `${noteLabel}: ${notice.message}` : "",
+    ]
+      .filter(Boolean)
+      .join("\n\n"),
+    action: {
+      label: notice.audience === "talent" ? "View interview" : "Open candidate",
+      url: new URL(path, config.frontendUrl).toString(),
+    },
   });
 }
 
@@ -422,6 +519,10 @@ const eventHandlers: Record<
   "assessment.completed": {
     schema: assessmentCompletedEventSchema,
     deliver: deliverAssessmentCompletedEvent,
+  },
+  "job.interview_notice": {
+    schema: interviewNoticeEventSchema,
+    deliver: deliverInterviewNoticeEvent,
   },
   "company.team_invite": {
     schema: teamInviteEventSchema,
