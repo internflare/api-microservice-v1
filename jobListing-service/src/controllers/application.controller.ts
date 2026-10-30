@@ -8,9 +8,14 @@ import {
   updateApplication,
 } from "../models/application.model.js";
 import { getOpportunityById } from "../models/opportunity.model.js";
+import {
+  listInterviewsForApplication,
+  listInterviewsForApplications,
+} from "../models/interview.model.js";
 import { checkEligibility } from "../services/eligibility.service.js";
 import {
   computeMatch,
+  isTalentEditable,
   loadApplicantProfiles,
   toEmployerApplication,
 } from "../services/application.service.js";
@@ -30,6 +35,7 @@ import {
   CLOSED_STAGES,
   STAGE_TRANSITIONS,
   companyApplicationsQuerySchema,
+  editApplicationSchema,
   submitApplicationSchema,
   updateApplicationSchema,
 } from "../validators/application.validator.js";
@@ -111,7 +117,15 @@ const submitApplicationHandler: RequestHandler = async (request, response, next)
 const listMyApplicationsHandler: RequestHandler = async (request, response, next) => {
   try {
     const userId = requireUserId(request);
-    response.json({ data: await listApplicationsForTalent(userId) });
+    const rows = await listApplicationsForTalent(userId);
+    const interviews = await listInterviewsForApplications(rows.map((row) => row.id));
+    const interviewed = new Set(interviews.map((i) => i.application_id));
+    response.json({
+      data: rows.map((row) => ({
+        ...row,
+        editable: isTalentEditable(row.current_stage, interviewed.has(row.id) ? 1 : 0),
+      })),
+    });
   } catch (error) {
     forwardError(error, next, "Failed to list applications:", "Could not list applications");
   }
@@ -239,7 +253,35 @@ const withdrawApplicationHandler: RequestHandler = async (request, response, nex
   }
 };
 
+// PATCH /applications/:id/mine: the applicant edits their cover letter until an interview is requested.
+const editMyApplicationHandler: RequestHandler = async (request, response, next) => {
+  try {
+    const userId = requireUserId(request);
+    const body = parseOrFail(editApplicationSchema.safeParse(request.body ?? {}), "Invalid application");
+    const application = await findApplicationById(parseApplicationId(request.params.id));
+    if (!application || application.talent_id !== userId) {
+      throw new AppError("Application not found", 404);
+    }
+    const interviews = await listInterviewsForApplication(application.id);
+    if (!isTalentEditable(application.current_stage, interviews.length)) {
+      throw new AppError(
+        "This application can no longer be edited because the employer has moved it forward",
+        409,
+      );
+    }
+    const profile = (await loadApplicantProfiles([userId])).get(userId) ?? null;
+    const updated = await updateApplication(application.id, {
+      cover_letter: body.cover_letter || null,
+      cv_url: profile?.cv_url ?? application.cv_url,
+    });
+    response.json({ application: updated && { ...updated, editable: true } });
+  } catch (error) {
+    forwardError(error, next, "Failed to edit application:", "Could not edit application");
+  }
+};
+
 export {
+  editMyApplicationHandler,
   getApplicationHandler,
   listCompanyApplicationsHandler,
   listMyAppliedIdsHandler,

@@ -37,6 +37,7 @@ export const openApiDocument = {
         "OpenAI-powered talent assessments, grading and placement",
     },
     { name: "AI Listings", description: "AI-drafted listing descriptions" },
+    { name: "AI Career Tools", description: "AI writing and coaching tools grounded in the talent's profile" },
     { name: "Team Invites", description: "Email invitations that attach teammates to a company" },
     { name: "Saved Opportunities", description: "A talent's bookmarked listings" },
   ],
@@ -310,6 +311,40 @@ export const openApiDocument = {
         responses: { "204": { description: "Removed" }, "404": { description: "Not saved" } },
       },
     },
+    "/api/v1/ai/career-tools/{toolId}": {
+      post: {
+        tags: ["AI Career Tools"],
+        summary: "Run a career tool using the talent's real profile and assessments",
+        description:
+          "Tools: cv-builder, cv-review, cover-letter, outreach, proposal, skill-gap, match-explain, readiness-explain, interview-practice, project-recs. cover-letter and match-explain need opportunity_id; cv-review, outreach, proposal, skill-gap and interview-practice need input.",
+        security: [{ sessionCookie: [] }],
+        parameters: [{ name: "toolId", in: "path", required: true, schema: { type: "string" } }],
+        requestBody: {
+          required: true,
+          content: {
+            "application/json": {
+              schema: {
+                type: "object",
+                properties: {
+                  context: { type: "string", maxLength: 200 },
+                  input: { type: "string", maxLength: 8000 },
+                  opportunity_id: { type: "string", pattern: "^[a-fA-F0-9]{24}$" },
+                },
+              },
+            },
+          },
+        },
+        responses: {
+          "200": { description: "{ tool_id, text }" },
+          "400": { description: "Invalid request or missing required field" },
+          "401": { description: "Not signed in" },
+          "404": { description: "Listing no longer exists" },
+          "409": { description: "Complete talent onboarding first" },
+          "429": { description: "Rate limit reached" },
+          "502": { description: "AI provider failed" },
+        },
+      },
+    },
     "/api/v1/ai/listings/description": {
       post: {
         tags: ["AI Listings"],
@@ -578,7 +613,17 @@ export const openApiDocument = {
         responses: { "200": { description: "{ application }" }, "401": { description: "Not signed in" }, "404": { description: "Not found (or not yours)" }, "409": { description: "Already closed" } },
       },
     },
-    "/api/v1/job/listing/applications/{applicationId}/interviews": {
+    "/api/v1/job/listing/applications/{applicationId}/mine": {
+       patch: {
+         tags: ["Applications"],
+         summary: "Edit your cover letter until the employer requests an interview",
+         security: [{ sessionCookie: [] }],
+         parameters: [{ name: "applicationId", in: "path", required: true, schema: { type: "string", pattern: "^[a-fA-F0-9]{24}$" } }],
+         requestBody: { required: true, content: { "application/json": { schema: { type: "object", required: ["cover_letter"], properties: { cover_letter: { type: "string", nullable: true, maxLength: 3000 } } } } } },
+         responses: { "200": { description: "{ application }" }, "400": { description: "Validation failed" }, "401": { description: "Not signed in" }, "404": { description: "Not found (or not yours)" }, "409": { description: "Locked after an interview request" } },
+       },
+     },
+     "/api/v1/job/listing/applications/{applicationId}/interviews": {
       get: {
         tags: ["Interviews"],
         summary: "List an application's interviews (applicant or company admin)",

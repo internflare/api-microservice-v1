@@ -609,7 +609,26 @@ export const openApiDocument = {
         },
       },
     },
-    "/opportunities/applications/{applicationId}/interviews": {
+    "/opportunities/applications/{applicationId}/mine": {
+       parameters: [{ name: "applicationId", in: "path", required: true, schema: objectIdSchema }],
+       patch: {
+         tags: ["Applications"],
+         summary: "Edit your cover letter until the employer requests an interview",
+         security: [{ sessionCookie: [] }],
+         requestBody: {
+           required: true,
+           content: { "application/json": { schema: { type: "object", required: ["cover_letter"], properties: { cover_letter: { type: "string", nullable: true, maxLength: 3000 } } } } },
+         },
+         responses: {
+           "200": { description: "Updated application" },
+           "400": { description: "Validation failed" },
+           "401": { description: "Authentication is required" },
+           "404": { description: "Application not found (or not yours)" },
+           "409": { description: "Locked: an interview was requested or the application is closed" },
+         },
+       },
+     },
+     "/opportunities/applications/{applicationId}/interviews": {
       parameters: [{ name: "applicationId", in: "path", required: true, schema: objectIdSchema }],
       get: {
         tags: ["Interviews"],

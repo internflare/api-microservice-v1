@@ -12,6 +12,13 @@ const submitApplicationSchema = z
   })
   .strict();
 
+// Talent edits only the cover letter; the CV is re-read from their profile.
+const editApplicationSchema = z
+  .object({
+    cover_letter: z.string().trim().max(3000).nullable(),
+  })
+  .strict();
+
 const companyApplicationsQuerySchema = z.object({
   company_id: objectIdSchema,
   opportunity_id: objectIdSchema.optional(),
@@ -48,6 +55,7 @@ export {
   CLOSED_STAGES,
   STAGE_TRANSITIONS,
   companyApplicationsQuerySchema,
+  editApplicationSchema,
   submitApplicationSchema,
   updateApplicationSchema,
 };

@@ -243,7 +243,12 @@ async function listApplicationsForCompany(
 
 async function updateApplication(
   id: string,
-  patch: { current_stage?: ApplicationStage; employer_notes?: string | null },
+  patch: {
+    current_stage?: ApplicationStage;
+    employer_notes?: string | null;
+    cover_letter?: string | null;
+    cv_url?: string | null;
+  },
 ): Promise<ApplicationRecord | null> {
   if (!isValidId(id)) return null;
   const doc = await ApplicationModel.findByIdAndUpdate(

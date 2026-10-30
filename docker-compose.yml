@@ -225,6 +225,7 @@ services:
       RABBITMQ_URL: amqp://rabbitmq:5672
       AUTH_SERVICE_URL: http://auth-service:3001
       PROFILE_SERVICE_URL: http://profile-service:3004
+      JOB_LISTING_SERVICE_URL: http://joblisting-service:3003
     depends_on:
       rabbitmq:
         condition: service_healthy

@@ -117,6 +117,58 @@ export const openApiDocument = {
         },
       },
     },
+    "/ai/career-tools/{toolId}": {
+      post: {
+        summary: "Run a career tool using the signed-in talent's real profile and assessments",
+        description:
+          "Tools: cv-builder, cv-review, cover-letter, outreach, proposal, skill-gap, match-explain, readiness-explain, interview-practice, project-recs. match-explain and cover-letter require `opportunity_id`; cv-review, outreach, proposal, skill-gap and interview-practice require `input`. Limited to 12 requests per minute.",
+        parameters: [
+          {
+            name: "toolId",
+            in: "path",
+            required: true,
+            schema: {
+              type: "string",
+              enum: [
+                "cv-builder", "cv-review", "cover-letter", "outreach", "proposal",
+                "skill-gap", "match-explain", "readiness-explain", "interview-practice", "project-recs",
+              ],
+            },
+          },
+        ],
+        requestBody: {
+          required: true,
+          content: {
+            "application/json": {
+              schema: {
+                type: "object",
+                properties: {
+                  context: { type: "string", maxLength: 200, description: "Target role or scenario chosen by the talent" },
+                  input: { type: "string", maxLength: 8000, description: "The talent's own text" },
+                  opportunity_id: { type: "string", pattern: "^[a-fA-F0-9]{24}$" },
+                },
+              },
+            },
+          },
+        },
+        responses: {
+          "200": {
+            description: "Generated text",
+            content: {
+              "application/json": {
+                schema: { type: "object", properties: { tool_id: { type: "string" }, text: { type: "string" } } },
+              },
+            },
+          },
+          "400": { description: "Invalid request or a required field is missing" },
+          "401": { description: "Authentication is required" },
+          "404": { description: "Listing no longer exists" },
+          "409": { description: "Talent onboarding is not complete" },
+          "429": { description: "Rate limit reached" },
+          "502": { description: "AI provider failed" },
+        },
+      },
+    },
     "/ai/assessments/{id}": {
       get: {
         summary: "Get one assessment",

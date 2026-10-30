@@ -16,6 +16,7 @@ import {
   updateOpportunityHandler,
 } from "../controllers/opportunity.controller.js";
 import {
+  editMyApplicationHandler,
   getApplicationHandler,
   listCompanyApplicationsHandler,
   listMyApplicationsHandler,
@@ -58,6 +59,7 @@ opportunityRoutes
   .get(requireAuth, getApplicationHandler)
   .patch(requireAuth, updateApplicationHandler);
 opportunityRoutes.post("/applications/:id/withdraw", requireAuth, withdrawApplicationHandler);
+opportunityRoutes.patch("/applications/:id/mine", requireAuth, editMyApplicationHandler);
 opportunityRoutes
   .route("/applications/:id/interviews")
   .get(requireAuth, listApplicationInterviewsHandler)

@@ -6,6 +6,12 @@ import type {
 } from "../models/application.model.js";
 import type { EligibilityResult } from "./eligibility.service.js";
 
+const TALENT_EDITABLE_STAGES = ["New", "Reviewed", "Shortlisted"];
+
+// Talent may edit until the employer requests an interview (any interview record locks it).
+export const isTalentEditable = (stage: string, interviewCount: number): boolean =>
+  TALENT_EDITABLE_STAGES.includes(stage) && interviewCount === 0;
+
 export interface ApplicantProfile {
   user_id: string;
   full_name: string | null;

@@ -41,6 +41,7 @@ const config = {
   notificationQueue: "internflare.notifications",
   authServiceUrl: urlEnv("AUTH_SERVICE_URL", "http://localhost:3001"),
   profileServiceUrl: urlEnv("PROFILE_SERVICE_URL", "http://localhost:3004"),
+  jobListingServiceUrl: urlEnv("JOB_LISTING_SERVICE_URL", "http://localhost:3003"),
   frontendUrl: urlEnv("FRONTEND_URL", "http://localhost:5173"),
   openaiApiKey: requireEnv("OPENAI_API_KEY"),
   openaiModel: process.env.OPENAI_MODEL?.trim() || "gpt-4o-mini",

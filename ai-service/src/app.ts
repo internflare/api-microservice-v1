@@ -7,6 +7,7 @@ import { openApiDocument } from "./docs/openapi.js";
 import { errorHandler, notFoundHandler } from "./middleware/error-handler.js";
 import { assessmentRoutes } from "./routes/assessment.routes.js";
 import { listingRoutes } from "./routes/listing.routes.js";
+import { careerToolRoutes } from "./routes/career-tool.routes.js";
 
 const app = express();
 
@@ -45,6 +46,7 @@ app.get("/ai/openapi.json", (_request, response) => {
 app.get("/health", getHealth);
 app.use("/ai/assessments", assessmentRoutes);
 app.use("/ai/listings", listingRoutes);
+app.use("/ai/career-tools", careerToolRoutes);
 app.use(notFoundHandler);
 app.use(errorHandler);
 
