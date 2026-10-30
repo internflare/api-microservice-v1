@@ -1,6 +1,7 @@
 import { Router } from "express";
 import {
   getSavedStatusHandler,
+  listSavedIdsHandler,
   listSavedOpportunitiesHandler,
   saveOpportunityHandler,
   unsaveOpportunityHandler,
@@ -14,6 +15,7 @@ export const savedOpportunityRoutes = Router();
 savedOpportunityRoutes.use(requireAuth);
 
 savedOpportunityRoutes.get("/", savedListCache, listSavedOpportunitiesHandler);
+savedOpportunityRoutes.get("/ids", listSavedIdsHandler);
 savedOpportunityRoutes
   .route("/:opportunityId")
   .get(getSavedStatusHandler)

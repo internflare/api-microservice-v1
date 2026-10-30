@@ -263,6 +263,14 @@ export const openApiDocument = {
         },
       },
     },
+    "/api/v1/saved-opportunities/ids": {
+      get: {
+        tags: ["Saved Opportunities"],
+        summary: "Ids of every listing the signed-in user has saved",
+        security: [{ sessionCookie: [] }],
+        responses: { "200": { description: "{ opportunity_ids: string[] }" }, "401": { description: "Not signed in" } },
+      },
+    },
     "/api/v1/saved-opportunities": {
       get: {
         tags: ["Saved Opportunities"],

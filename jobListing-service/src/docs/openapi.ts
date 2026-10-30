@@ -285,6 +285,17 @@ export const openApiDocument = {
         },
       },
     },
+    "/saved-opportunities/ids": {
+      get: {
+        tags: ["Saved Opportunities"],
+        summary: "Ids of every listing the signed-in user has saved",
+        security: [{ sessionCookie: [] }],
+        responses: {
+          "200": { description: "{ opportunity_ids: string[] }" },
+          "401": { description: "Authentication is required" },
+        },
+      },
+    },
     "/saved-opportunities": {
       get: {
         tags: ["Saved opportunities"],

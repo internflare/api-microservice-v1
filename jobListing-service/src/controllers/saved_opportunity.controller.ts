@@ -1,6 +1,7 @@
 import type { RequestHandler } from "express";
 import {
   isOpportunitySavedByTalent,
+  listSavedOpportunityIds,
   listSavedOpportunitiesForTalent,
   removeSavedOpportunity,
   saveOpportunityForTalent,
@@ -13,6 +14,7 @@ import {
   savedListIndexKey,
   setCached,
 } from "../services/cache.service.js";
+import { attachCompanyLogos } from "../services/company-logo.service.js";
 import { forwardError } from "../utils/forward-error.js";
 import {
   formatValidationError,
@@ -26,6 +28,41 @@ const parseOpportunityId = (value: unknown): string => {
   const parsed = objectIdSchema.safeParse(value);
   if (!parsed.success) throw new AppError("Invalid opportunity id", 400);
   return parsed.data;
+};
+
+// Adds the current company logo to each joined listing; applied after the cache read.
+const withLogos = async (
+  body: Record<string, unknown>,
+): Promise<Record<string, unknown>> => {
+  const rows = body.data as Array<{ opportunity: Record<string, any> | null }>;
+  const withCompany = rows.map((row) => ({
+    company_id: (row.opportunity?.company_id as string | null) ?? null,
+  }));
+  const logos = await attachCompanyLogos(withCompany);
+  return {
+    ...body,
+    data: rows.map((row, index) => ({
+      ...row,
+      opportunity: row.opportunity
+        ? { ...row.opportunity, company_logo_url: logos[index].company_logo_url }
+        : null,
+    })),
+  };
+};
+
+// GET /saved-opportunities/ids: ids of every listing the talent has saved.
+const listSavedIdsHandler: RequestHandler = async (request, response, next) => {
+  try {
+    const talentId = requireUserId(request);
+    response.json({ opportunity_ids: await listSavedOpportunityIds(talentId) });
+  } catch (error) {
+    forwardError(
+      error,
+      next,
+      "Failed to list saved ids:",
+      "Could not list saved opportunities",
+    );
+  }
 };
 
 // GET /saved-opportunities: the signed-in talent's saved listings, newest first.
@@ -71,7 +108,7 @@ const listSavedOpportunitiesHandler: RequestHandler = async (
         ]);
       }
     }
-    response.json(body);
+    response.json(await withLogos(body));
   } catch (error) {
     forwardError(
       error,
@@ -156,6 +193,7 @@ const unsaveOpportunityHandler: RequestHandler = async (
 
 export {
   getSavedStatusHandler,
+  listSavedIdsHandler,
   listSavedOpportunitiesHandler,
   saveOpportunityHandler,
   unsaveOpportunityHandler,

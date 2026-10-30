@@ -81,6 +81,17 @@ async function isOpportunitySavedByTalent(
   return found !== null;
 }
 
+// Just the saved listing ids, so the UI can mark bookmarks without loading every listing.
+async function listSavedOpportunityIds(talentId: string): Promise<string[]> {
+  const rows = await SavedOpportunityModel.find({
+    talent_id: new Types.ObjectId(talentId),
+  })
+    .select({ opportunity_id: 1 })
+    .lean()
+    .exec();
+  return rows.map((row) => String(row.opportunity_id));
+}
+
 // Lists a talent's saved opportunities, newest first, with each listing joined in.
 async function listSavedOpportunitiesForTalent(
   talentId: string,
@@ -115,7 +126,11 @@ async function listSavedOpportunitiesForTalent(
       opportunity_id: String(doc.opportunity_id),
       created_at: doc.created_at as Date,
       opportunity: doc.opportunity
-        ? { id: String(opportunityKey), ...opportunity }
+        ? {
+            id: String(opportunityKey),
+            ...opportunity,
+            company_id: opportunity.company_id ? String(opportunity.company_id) : null,
+          }
         : null,
     };
   });
@@ -126,5 +141,6 @@ export {
   saveOpportunityForTalent,
   removeSavedOpportunity,
   isOpportunitySavedByTalent,
+  listSavedOpportunityIds,
   listSavedOpportunitiesForTalent,
 };
